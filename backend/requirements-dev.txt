@@ -6,6 +6,7 @@ pytest-mock==3.12.0
 factory-boy==3.3.0
 faker==20.1.0
 
+
 # Development tools
 black==23.11.0
 isort==5.12.0
