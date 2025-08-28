@@ -176,3 +176,4 @@ test_google_auth.html
 SDCoach_API_Collection.json
 *.md
 docs/
+generate_mock_token.py
