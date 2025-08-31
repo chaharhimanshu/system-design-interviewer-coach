@@ -467,3 +467,27 @@ async def dev_login(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Dev login failed: {str(e)}",
         )
+
+
+async def get_current_user_ws(token: str = None):
+    """Get current user for WebSocket connections"""
+    if not token:
+        return None
+
+    try:
+        # Create dependency instances for WebSocket
+        from app.infrastructure.database.config import db_config
+        from app.domain.entities.user import User
+
+        db_session = await db_config.get_session()
+        user_repository = PostgreSQLUserRepository(db_session)
+        auth_service = AuthenticationService(user_repository)
+
+        # Verify token and get user
+        user = await auth_service.get_user_from_token(token)
+        await db_session.close()
+        return user
+
+    except Exception as e:
+        logger.error(f"WebSocket authentication failed: {e}")
+        return None

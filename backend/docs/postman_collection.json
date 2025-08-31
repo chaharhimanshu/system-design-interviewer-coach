@@ -1,0 +1,505 @@
+{
+  "info": {
+    "name": "System Design Interview Coach - Complete API Collection",
+    "description": "Complete API collection for user management and interview sessions",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api/v1"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Dev Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/users/auth/dev-login",
+              "host": ["{{base_url}}"],
+              "path": ["users", "auth", "dev-login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('access_token', response.access_token);",
+                  "    pm.collectionVariables.set('refresh_token', response.refresh_token);",
+                  "    console.log('Token saved:', response.access_token.substring(0, 20) + '...');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["users", "auth", "refresh"]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["users", "auth", "logout"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Profile",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"company\": \"Tech Corp\",\n  \"job_title\": \"Senior Software Engineer\",\n  \"years_of_experience\": 8,\n  \"bio\": \"Experienced developer passionate about system design\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users/me/profile",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Update Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"preferred_topics\": [\"Microservices\", \"Database Design\", \"Caching\"],\n  \"difficulty_level\": \"advanced\",\n  \"session_duration_preference\": 60,\n  \"email_notifications\": true,\n  \"push_notifications\": false,\n  \"timezone\": \"America/New_York\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users/me/preferences",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "preferences"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Subscription",
+      "item": [
+        {
+          "name": "Start Trial",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tier\": \"premium\",\n  \"trial_days\": 14\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users/me/subscription/trial",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "subscription", "trial"]
+            }
+          }
+        },
+        {
+          "name": "Upgrade Subscription",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tier\": \"premium\",\n  \"duration_months\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users/me/subscription/upgrade",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "subscription", "upgrade"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health & Test",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/health",
+              "host": ["{{base_url}}"],
+              "path": ["users", "health"]
+            }
+          }
+        },
+        {
+          "name": "Test Endpoint",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/test",
+              "host": ["{{base_url}}"],
+              "path": ["users", "test"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Interview Sessions",
+      "item": [
+        {
+          "name": "Create Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"topic\": \"Design a Chat System\",\n    \"difficulty_level\": \"intermediate\",\n    \"max_duration_minutes\": 60,\n    \"enable_hints\": true,\n    \"enable_real_time_feedback\": true,\n    \"custom_requirements\": \"Focus on scalability and real-time messaging\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/sessions",
+              "host": ["{{base_url}}"],
+              "path": ["sessions"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('session_id', response.session_id);",
+                  "    console.log('Session ID saved:', response.session_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get User Sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sessions?limit=20&offset=0",
+              "host": ["{{base_url}}"],
+              "path": ["sessions"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "status_filter",
+                  "value": "ACTIVE",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Active Session",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sessions/active",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "active"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 && pm.response.json()) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.session_id) {",
+                  "        pm.collectionVariables.set('session_id', response.session_id);",
+                  "        console.log('Active session ID saved:', response.session_id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Session Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sessions/{{session_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "{{session_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"I would design a distributed chat system using microservices architecture. The main components would include: 1) API Gateway for routing requests, 2) User Service for authentication and user management, 3) Chat Service for message handling, 4) Notification Service for real-time updates, 5) Message Storage using a combination of SQL and NoSQL databases.\",\n  \"message_type\": \"TEXT\",\n  \"metadata\": {\n    \"timestamp_client\": \"2024-01-15T10:30:00Z\",\n    \"user_agent\": \"PostmanRuntime/7.32.0\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/sessions/{{session_id}}/messages",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "{{session_id}}", "messages"]
+            }
+          }
+        },
+        {
+          "name": "Get Conversation History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sessions/{{session_id}}/messages?limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "{{session_id}}", "messages"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Complete Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"complete\",\n  \"reason\": \"Session completed successfully with good architectural discussion\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/sessions/{{session_id}}/actions",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "{{session_id}}", "actions"]
+            }
+          }
+        },
+        {
+          "name": "Abandon Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"abandon\",\n  \"reason\": \"User had to leave unexpectedly\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/sessions/{{session_id}}/actions",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "{{session_id}}", "actions"]
+            }
+          }
+        },
+        {
+          "name": "Extend Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"extend\",\n  \"additional_minutes\": 30,\n  \"reason\": \"Need more time to discuss scalability details\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/sessions/{{session_id}}/actions",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "{{session_id}}", "actions"]
+            }
+          }
+        },
+        {
+          "name": "Get Session Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sessions/{{session_id}}/metrics",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "{{session_id}}", "metrics"]
+            }
+          }
+        },
+        {
+          "name": "Get User Session Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sessions/stats/user",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "stats", "user"]
+            }
+          }
+        },
+        {
+          "name": "Session Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sessions/health",
+              "host": ["{{base_url}}"],
+              "path": ["sessions", "health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Account Management",
+      "item": [
+        {
+          "name": "Deactivate Account",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

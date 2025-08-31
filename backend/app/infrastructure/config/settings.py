@@ -4,11 +4,14 @@ Application Configuration Settings
 
 import os
 from typing import Optional
-from pydantic import BaseSettings, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseSettings):
     """Database configuration settings"""
+
+    model_config = SettingsConfigDict(env_prefix="DB_", extra="ignore")
 
     host: str = Field(default="localhost", env="DB_HOST")
     port: int = Field(default=5432, env="DB_PORT")
@@ -20,12 +23,11 @@ class DatabaseSettings(BaseSettings):
     def url(self) -> str:
         return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
 
-    class Config:
-        env_prefix = "DB_"
-
 
 class RedisSettings(BaseSettings):
     """Redis configuration settings"""
+
+    model_config = SettingsConfigDict(env_prefix="REDIS_", extra="ignore")
 
     host: str = Field(default="localhost", env="REDIS_HOST")
     port: int = Field(default=6379, env="REDIS_PORT")
@@ -38,12 +40,11 @@ class RedisSettings(BaseSettings):
             return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
         return f"redis://{self.host}:{self.port}/{self.db}"
 
-    class Config:
-        env_prefix = "REDIS_"
-
 
 class OpenAISettings(BaseSettings):
     """OpenAI API configuration settings"""
+
+    model_config = SettingsConfigDict(env_prefix="OPENAI_", extra="ignore")
 
     api_key: str = Field(..., env="OPENAI_API_KEY")
     model: str = Field(default="gpt-4o", env="OPENAI_MODEL")
@@ -57,12 +58,11 @@ class OpenAISettings(BaseSettings):
     feedback_temperature: float = Field(default=0.6, env="OPENAI_FEEDBACK_TEMPERATURE")
     question_temperature: float = Field(default=0.8, env="OPENAI_QUESTION_TEMPERATURE")
 
-    class Config:
-        env_prefix = "OPENAI_"
-
 
 class APISettings(BaseSettings):
     """API configuration settings"""
+
+    model_config = SettingsConfigDict(env_prefix="API_", extra="ignore")
 
     title: str = "System Design Interview Coach API"
     version: str = "1.0.0"
@@ -77,23 +77,21 @@ class APISettings(BaseSettings):
         default=["http://localhost:3000", "http://localhost:8080"], env="CORS_ORIGINS"
     )
 
-    class Config:
-        env_prefix = "API_"
-
 
 class SessionSettings(BaseSettings):
     """Session management settings"""
+
+    model_config = SettingsConfigDict(env_prefix="SESSION_", extra="ignore")
 
     default_timeout_minutes: int = Field(default=60, env="SESSION_TIMEOUT_MINUTES")
     max_sessions_per_user: int = Field(default=5, env="MAX_SESSIONS_PER_USER")
     cleanup_interval_minutes: int = Field(default=30, env="SESSION_CLEANUP_INTERVAL")
 
-    class Config:
-        env_prefix = "SESSION_"
-
 
 class AISettings(BaseSettings):
     """AI service configuration settings"""
+
+    model_config = SettingsConfigDict(env_prefix="AI_", extra="ignore")
 
     memory_sliding_window: int = Field(default=20, env="AI_MEMORY_WINDOW")
     max_conversation_length: int = Field(default=100, env="AI_MAX_CONVERSATION_LENGTH")
@@ -107,12 +105,13 @@ class AISettings(BaseSettings):
     # Response timeouts
     openai_timeout_seconds: int = Field(default=30, env="AI_OPENAI_TIMEOUT")
 
-    class Config:
-        env_prefix = "AI_"
-
 
 class Settings(BaseSettings):
     """Main application settings"""
+
+    model_config = SettingsConfigDict(
+        env_file=".env", case_sensitive=False, extra="ignore"
+    )
 
     # Environment
     environment: str = Field(default="development", env="ENVIRONMENT")
@@ -131,9 +130,10 @@ class Settings(BaseSettings):
         default="%(asctime)s - %(name)s - %(levelname)s - %(message)s", env="LOG_FORMAT"
     )
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    @property
+    def redis_url(self) -> str:
+        """Get Redis URL for connections"""
+        return self.redis.url
 
 
 # Global settings instance

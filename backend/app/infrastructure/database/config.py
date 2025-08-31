@@ -16,7 +16,7 @@ class DatabaseConfig:
     def __init__(self):
         self.database_url = os.getenv(
             "DATABASE_URL",
-            "postgresql+asyncpg://postgres:password@localhost:5432/sdicoach",
+            "postgresql+asyncpg://postgres:postgres@localhost:5432/sdicoach",
         )
         self.echo = os.getenv("DATABASE_ECHO", "false").lower() == "true"
         self.pool_size = int(os.getenv("DATABASE_POOL_SIZE", "10"))

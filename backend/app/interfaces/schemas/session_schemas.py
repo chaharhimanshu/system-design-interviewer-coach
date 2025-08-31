@@ -172,3 +172,66 @@ class SessionActionRequest(BaseModel):
         if info.data.get("action") == "extend" and v is None:
             raise ValueError("additional_minutes required for extend action")
         return v
+
+
+class AsyncMessageResponse(BaseModel):
+    """Response model for async message processing"""
+
+    message_id: UUID
+    role: MessageRole
+    content: str
+    message_type: MessageType
+    timestamp: datetime
+    metadata: Dict[str, Any]
+    tokens_used: int
+
+    # Async processing info
+    task_id: str
+    task_status: str
+    estimated_completion_seconds: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TaskProgressInfo(BaseModel):
+    """Task progress information"""
+
+    current_step: str
+    completed_steps: int
+    total_steps: int
+    percentage: float
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
+
+class TaskStatusResponse(BaseModel):
+    """Response model for task status"""
+
+    task_id: str
+    status: str  # pending, processing, completed, failed, cancelled, retrying
+    task_type: str
+    session_id: UUID
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    progress: Optional[TaskProgressInfo] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    retry_count: int = 0
+
+
+class WebSocketMessage(BaseModel):
+    """WebSocket message structure"""
+
+    type: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    data: Optional[Dict[str, Any]] = None
+
+    # Specific message types
+    task_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+    class Config:
+        json_encoders = {datetime: lambda v: v.isoformat()}

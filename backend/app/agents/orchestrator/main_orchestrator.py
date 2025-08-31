@@ -91,10 +91,10 @@ class MainOrchestrator:
 
         # Initialize OpenAI model for orchestration
         self.llm = ChatOpenAI(
-            model=self.settings.OPENAI_MODEL,
+            model=self.settings.openai.model,
             temperature=0.5,  # Balanced temperature for decision making
-            api_key=self.settings.OPENAI_API_KEY,
-            max_tokens=self.settings.OPENAI_MAX_TOKENS,
+            api_key=self.settings.openai.api_key,
+            max_tokens=self.settings.openai.max_tokens,
         )
 
         # Initialize specialized agents

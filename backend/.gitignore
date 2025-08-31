@@ -170,9 +170,6 @@ temp/
 *.dump
 *.sql.backup
 venv
+*.md
 database_schema.sql
 docker-compose.yml
-test_google_auth.html
-SDCoach_API_Collection.json
-*.md
-docs/

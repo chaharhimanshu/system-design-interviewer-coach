@@ -27,7 +27,8 @@ from app.infrastructure.database.config import db_config
 
 # Import API routes
 from app.interfaces.api.v1.user_endpoints import router as user_router
-from app.interfaces.api.v1.session_endpoints import router as session_router
+from app.interfaces.api.v1.async_session_endpoints import router as async_session_router
+from app.interfaces.api.v1.websocket_endpoints import router as websocket_router
 
 # Import exceptions
 from app.shared.exceptions import SDCoachException
@@ -39,16 +40,44 @@ async def lifespan(app: FastAPI):
     logger.info("Starting System Design Interview Coach API")
 
     try:
-        # Create database tables
-        await db_config.create_tables()
-        logger.info("Database tables created/verified successfully")
+        # Verify database connection
+        async with db_config.engine.connect() as conn:
+            await conn.execute("SELECT 1")
+        logger.info("Database connection verified successfully")
+
+        # Note: Database schema should be managed via SQL scripts
+        # Run your SQL migration scripts before starting the application
+
+        # Initialize task infrastructure
+        from app.infrastructure.tasks.task_queue import get_task_manager
+        from app.infrastructure.tasks.task_processor import start_task_processor
+
+        # Initialize task manager
+        await get_task_manager()
+        logger.info("Task manager initialized successfully")
+
+        # Start background task processor
+        await start_task_processor()
+        logger.info("Background task processor started successfully")
+
     except Exception as e:
-        logger.error(f"Failed to create database tables: {str(e)}", exc_info=True)
+        logger.error(f"Failed to start application components: {str(e)}", exc_info=True)
         raise
 
     yield
 
     logger.info("Shutting down System Design Interview Coach API")
+
+    # Cleanup task infrastructure
+    try:
+        from app.infrastructure.tasks.task_processor import stop_task_processor
+        from app.infrastructure.tasks.task_queue import cleanup_task_manager
+
+        await stop_task_processor()
+        await cleanup_task_manager()
+        logger.info("Task infrastructure cleaned up successfully")
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}", exc_info=True)
 
 
 def create_app() -> FastAPI:
@@ -109,8 +138,11 @@ def create_app() -> FastAPI:
     # Include user router with API prefix
     app.include_router(user_router, prefix="/api/v1")
 
-    # Include session router with API prefix
-    app.include_router(session_router, prefix="/api/v1")
+    # Include async session router with API prefix (new asynchronous endpoints)
+    app.include_router(async_session_router, prefix="/api/v1")
+
+    # Include WebSocket router
+    app.include_router(websocket_router, prefix="/api/v1")
 
     return app
 

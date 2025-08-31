@@ -4,7 +4,7 @@ Advanced StateGraph-based agent for generating comprehensive feedback with archi
 """
 
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TypedDict
 from datetime import datetime
 
 from langchain_openai import ChatOpenAI
@@ -18,6 +18,24 @@ from app.infrastructure.config import settings
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class FeedbackWorkflowState(TypedDict):
+    """State schema for the feedback generation workflow"""
+
+    evaluation_data: Dict[str, Any]
+    user_answer: str
+    question: str
+    topic: str
+    difficulty: str
+    context: Dict[str, Any]
+    org_standards: Dict[str, Any]
+    # Workflow outputs
+    answer_analysis: Optional[Dict[str, Any]]
+    performance_report: Optional[Dict[str, Any]]
+    architecture_comparison: Optional[Dict[str, Any]]
+    final_feedback: Optional[Dict[str, Any]]
+    step: str
 
 
 class FeedbackProviderAgent:
@@ -60,24 +78,6 @@ class FeedbackProviderAgent:
 
     def _create_feedback_workflow(self) -> StateGraph:
         """Create the StateGraph workflow for comprehensive feedback generation"""
-
-        def feedback_state(state: Dict[str, Any]) -> Dict[str, Any]:
-            """Define the state structure for feedback workflow"""
-            return {
-                "evaluation_data": state.get("evaluation_data", {}),
-                "user_answer": state.get("user_answer", ""),
-                "question": state.get("question", ""),
-                "topic": state.get("topic", ""),
-                "difficulty": state.get("difficulty", "intermediate"),
-                "context": state.get("context", {}),
-                "org_standards": state.get("org_standards", {}),
-                # Workflow outputs
-                "answer_analysis": state.get("answer_analysis"),
-                "performance_report": state.get("performance_report"),
-                "architecture_comparison": state.get("architecture_comparison"),
-                "final_feedback": state.get("final_feedback"),
-                "step": state.get("step", "start"),
-            }
 
         def analyze_answer(state: Dict[str, Any]) -> Dict[str, Any]:
             """Step 1: Comprehensive answer analysis"""
@@ -364,7 +364,7 @@ class FeedbackProviderAgent:
             return state
 
         # Create the workflow graph
-        workflow = StateGraph(feedback_state)
+        workflow = StateGraph(FeedbackWorkflowState)
 
         # Add nodes for each step
         workflow.add_node("analyze", analyze_answer)
