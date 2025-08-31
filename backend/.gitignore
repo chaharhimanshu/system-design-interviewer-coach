@@ -173,3 +173,5 @@ venv
 *.md
 database_schema.sql
 docker-compose.yml
+docs/
+generate_mock_token.py
