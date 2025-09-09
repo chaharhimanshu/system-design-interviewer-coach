@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -27,8 +28,9 @@ from app.infrastructure.database.config import db_config
 
 # Import API routes
 from app.interfaces.api.v1.user_endpoints import router as user_router
-from app.interfaces.api.v1.async_session_endpoints import router as async_session_router
-from app.interfaces.api.v1.websocket_endpoints import router as websocket_router
+from app.interfaces.api.v1.session_stream_endpoints import (
+    router as stream_session_router,
+)
 
 # Import exceptions
 from app.shared.exceptions import SDCoachException
@@ -42,23 +44,11 @@ async def lifespan(app: FastAPI):
     try:
         # Verify database connection
         async with db_config.engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         logger.info("Database connection verified successfully")
 
         # Note: Database schema should be managed via SQL scripts
         # Run your SQL migration scripts before starting the application
-
-        # Initialize task infrastructure
-        from app.infrastructure.tasks.task_queue import get_task_manager
-        from app.infrastructure.tasks.task_processor import start_task_processor
-
-        # Initialize task manager
-        await get_task_manager()
-        logger.info("Task manager initialized successfully")
-
-        # Start background task processor
-        await start_task_processor()
-        logger.info("Background task processor started successfully")
 
     except Exception as e:
         logger.error(f"Failed to start application components: {str(e)}", exc_info=True)
@@ -67,17 +57,6 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down System Design Interview Coach API")
-
-    # Cleanup task infrastructure
-    try:
-        from app.infrastructure.tasks.task_processor import stop_task_processor
-        from app.infrastructure.tasks.task_queue import cleanup_task_manager
-
-        await stop_task_processor()
-        await cleanup_task_manager()
-        logger.info("Task infrastructure cleaned up successfully")
-    except Exception as e:
-        logger.error(f"Error during cleanup: {e}", exc_info=True)
 
 
 def create_app() -> FastAPI:
@@ -138,11 +117,8 @@ def create_app() -> FastAPI:
     # Include user router with API prefix
     app.include_router(user_router, prefix="/api/v1")
 
-    # Include async session router with API prefix (new asynchronous endpoints)
-    app.include_router(async_session_router, prefix="/api/v1")
-
-    # Include WebSocket router
-    app.include_router(websocket_router, prefix="/api/v1")
+    # Include streaming session router with API prefix (real-time streaming endpoints)
+    app.include_router(stream_session_router, prefix="/api/v1")
 
     return app
 

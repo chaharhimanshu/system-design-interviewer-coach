@@ -47,9 +47,11 @@ class MessageModel(Base):
     # Message content and metadata
     role = Column(
         Enum(
-            MessageRole,
+            "USER",
+            "ASSISTANT",
+            "SYSTEM",
             name="message_role",
-            values_callable=lambda obj: [e.value for e in obj],
+            create_type=False,  # Use existing PostgreSQL enum
         ),
         nullable=False,
         index=True,
@@ -57,12 +59,17 @@ class MessageModel(Base):
     content = Column(Text, nullable=False)
     message_type = Column(
         Enum(
-            MessageType,
+            "TEXT",
+            "QUESTION",
+            "ANSWER",
+            "FEEDBACK",
+            "CLARIFICATION",
+            "HINT",
             name="message_type",
-            values_callable=lambda obj: [e.value for e in obj],
+            create_type=False,  # Use existing PostgreSQL enum
         ),
         nullable=False,
-        default=MessageType.TEXT.value,
+        default="TEXT",
     )
 
     # Message timing and usage

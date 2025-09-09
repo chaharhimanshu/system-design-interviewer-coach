@@ -49,15 +49,7 @@ class SessionService:
         if not user:
             raise ResourceNotFoundError(f"User {user_id} not found")
 
-        # Check if user has active session
-        active_session = await self.session_repository.get_active_session_for_user(
-            user_id
-        )
-        if active_session:
-            raise ConflictError(
-                f"User already has an active session: {active_session.session_id}. "
-                "Please complete or abandon the current session before starting a new one."
-            )
+        # Note: Multiple active sessions are now allowed for flexible learning
 
         # Validate topic and difficulty
         if not topic or len(topic.strip()) < 5:
@@ -161,20 +153,69 @@ class SessionService:
 
         # Validate role
         try:
-            message_role = MessageRole(role.upper())
+            # Handle both uppercase and lowercase role values
+            role_upper = role.upper()
+            if role_upper == "USER":
+                message_role = MessageRole.USER
+            elif role_upper == "ASSISTANT":
+                message_role = MessageRole.ASSISTANT
+            elif role_upper == "SYSTEM":
+                message_role = MessageRole.SYSTEM
+            else:
+                # Try direct conversion for lowercase values
+                message_role = MessageRole(role.lower())
         except ValueError:
             raise ValidationError(f"Invalid message role: {role}")
 
         # Create message
         from uuid import uuid4
 
+        # Handle message_type conversion safely
+        try:
+            if isinstance(message_type, str):
+                # Convert string to uppercase and map to enum
+                message_type_upper = message_type.upper()
+                try:
+                    # Try direct enum conversion first
+                    message_type_enum = MessageType(message_type_upper)
+                except ValueError:
+                    # If direct conversion fails, use mapping
+                    message_type_mapping = {
+                        "TEXT": MessageType.TEXT,
+                        "QUESTION": MessageType.QUESTION,
+                        "ANSWER": MessageType.ANSWER,
+                        "FEEDBACK": MessageType.FEEDBACK,
+                        "CLARIFICATION": MessageType.CLARIFICATION,
+                        "HINT": MessageType.HINT,
+                        # Legacy lowercase mappings
+                        "text": MessageType.TEXT,
+                        "question": MessageType.QUESTION,
+                        "answer": MessageType.ANSWER,
+                        "feedback": MessageType.FEEDBACK,
+                        "clarification": MessageType.CLARIFICATION,
+                        "hint": MessageType.HINT,
+                        # Common alternative mappings
+                        "RESPONSE": MessageType.TEXT,
+                        "response": MessageType.TEXT,
+                        "MESSAGE": MessageType.TEXT,
+                        "message": MessageType.TEXT,
+                    }
+                    message_type_enum = message_type_mapping.get(
+                        message_type, MessageType.TEXT
+                    )
+            elif isinstance(message_type, MessageType):
+                message_type_enum = message_type
+            else:
+                message_type_enum = MessageType.TEXT
+        except Exception as e:
+            logger.warning(f"Failed to convert message_type '{message_type}': {e}")
+            message_type_enum = MessageType.TEXT
+
         message = Message(
             message_id=uuid4(),
             role=message_role,
             content=content,
-            message_type=(
-                MessageType(message_type) if message_type else MessageType.TEXT
-            ),
+            message_type=message_type_enum,
             metadata=metadata or {},
         )
 
@@ -303,3 +344,88 @@ class SessionService:
         ]
 
         return filtered_sessions[:limit]
+
+    async def pause_session(self, session_id: UUID, user_id: UUID) -> bool:
+        """Pause an active session"""
+        session = await self.session_repository.get_by_id(session_id)
+        if not session:
+            logger.error(f"Session not found: {session_id}")
+            return False
+
+        if session.user_id != user_id:
+            logger.error(f"Session access denied for user {user_id}")
+            return False
+
+        if session.status != SessionStatus.ACTIVE:
+            logger.warning(f"Cannot pause session in status: {session.status}")
+            return False
+
+        try:
+            success = await self.session_repository.update_session_status(
+                session_id, SessionStatus.PAUSED
+            )
+
+            if success:
+                logger.info(f"Session paused: {session_id}")
+            else:
+                logger.error(f"Failed to pause session: {session_id}")
+
+            return success
+        except Exception as e:
+            logger.error(f"Error pausing session {session_id}: {e}")
+            return False
+
+    async def resume_session(self, session_id: UUID, user_id: UUID) -> bool:
+        """Resume a paused session"""
+        session = await self.session_repository.get_by_id(session_id)
+        if not session:
+            logger.error(f"Session not found: {session_id}")
+            return False
+
+        if session.user_id != user_id:
+            logger.error(f"Session access denied for user {user_id}")
+            return False
+
+        if session.status != SessionStatus.PAUSED:
+            logger.warning(f"Cannot resume session in status: {session.status}")
+            return False
+
+        try:
+            success = await self.session_repository.update_session_status(
+                session_id, SessionStatus.ACTIVE
+            )
+
+            if success:
+                logger.info(f"Session resumed: {session_id}")
+            else:
+                logger.error(f"Failed to resume session: {session_id}")
+
+            return success
+        except Exception as e:
+            logger.error(f"Error resuming session {session_id}: {e}")
+            return False
+
+
+# Global session service instance
+session_service: Optional[SessionService] = None
+
+
+# NOTE: This function is used for MVP testing with in-memory repositories
+# For production, use the dependency injection in async_session_endpoints.py
+async def get_session_service_in_memory() -> SessionService:
+    """Get or create global session service instance with in-memory repositories for testing"""
+    global session_service
+
+    if session_service is None:
+        from app.infrastructure.repositories.in_memory_session_repository import (
+            InMemorySessionRepository,
+        )
+        from app.infrastructure.repositories.in_memory_user_repository import (
+            InMemoryUserRepository,
+        )
+
+        session_repo = InMemorySessionRepository()
+        user_repo = InMemoryUserRepository()
+        session_service = SessionService(session_repo, user_repo)
+
+    return session_service

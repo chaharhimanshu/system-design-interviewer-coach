@@ -50,12 +50,14 @@ class SessionModel(Base):
     topic = Column(String(200), nullable=False, index=True)
     difficulty_level = Column(
         Enum(
-            DifficultyLevel,
+            "beginner",
+            "intermediate",
+            "advanced",
             name="difficulty_level",
-            values_callable=lambda obj: [e.value for e in obj],
+            create_type=False,  # Use existing PostgreSQL enum
         ),
         nullable=False,
-        default=DifficultyLevel.INTERMEDIATE.value,
+        default="intermediate",
     )
     max_duration_minutes = Column(Integer, nullable=False, default=60)
     enable_hints = Column(Boolean, nullable=False, default=True)
@@ -65,12 +67,14 @@ class SessionModel(Base):
     # Session status and timing
     status = Column(
         Enum(
-            SessionStatus,
+            "active",
+            "completed",
+            "abandoned",
             name="session_status",
-            values_callable=lambda obj: [e.value for e in obj],
+            create_type=False,  # Use existing PostgreSQL enum
         ),
         nullable=False,
-        default=SessionStatus.ACTIVE.value,
+        default="active",
         index=True,
     )
     started_at = Column(

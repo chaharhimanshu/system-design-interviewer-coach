@@ -470,12 +470,12 @@ async def dev_login(
 
 
 async def get_current_user_ws(token: str = None):
-    """Get current user for WebSocket connections"""
+    """Get current user for SSE connections"""
     if not token:
         return None
 
     try:
-        # Create dependency instances for WebSocket
+        # Create dependency instances for SSE
         from app.infrastructure.database.config import db_config
         from app.domain.entities.user import User
 
@@ -489,5 +489,5 @@ async def get_current_user_ws(token: str = None):
         return user
 
     except Exception as e:
-        logger.error(f"WebSocket authentication failed: {e}")
+        logger.error(f"SSE authentication failed: {e}")
         return None

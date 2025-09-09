@@ -14,6 +14,7 @@ class SessionStatus(str, Enum):
     """Interview session status"""
 
     ACTIVE = "active"
+    PAUSED = "paused"
     COMPLETED = "completed"
     ABANDONED = "abandoned"
 
@@ -29,20 +30,20 @@ class DifficultyLevel(str, Enum):
 class MessageRole(str, Enum):
     """Chat message roles"""
 
-    USER = "user"
-    ASSISTANT = "assistant"
-    SYSTEM = "system"
+    USER = "USER"
+    ASSISTANT = "ASSISTANT"
+    SYSTEM = "SYSTEM"
 
 
 class MessageType(str, Enum):
     """Types of messages in the session"""
 
-    TEXT = "text"
-    QUESTION = "question"
-    ANSWER = "answer"
-    FEEDBACK = "feedback"
-    CLARIFICATION = "clarification"
-    HINT = "hint"
+    TEXT = "TEXT"
+    QUESTION = "QUESTION"
+    ANSWER = "ANSWER"
+    FEEDBACK = "FEEDBACK"
+    CLARIFICATION = "CLARIFICATION"
+    HINT = "HINT"
 
 
 @dataclass
@@ -153,6 +154,18 @@ class InterviewSession:
             self.total_duration = self._calculate_duration()
             self._mark_as_updated()
 
+    def pause_session(self) -> None:
+        """Pause an active session"""
+        if self.status == SessionStatus.ACTIVE:
+            self.status = SessionStatus.PAUSED
+            self._mark_as_updated()
+
+    def resume_session(self) -> None:
+        """Resume a paused session"""
+        if self.status == SessionStatus.PAUSED:
+            self.status = SessionStatus.ACTIVE
+            self._mark_as_updated()
+
     def extend_session(self, additional_minutes: int) -> None:
         """Extend session duration"""
         if self.status == SessionStatus.ACTIVE:
@@ -161,7 +174,7 @@ class InterviewSession:
 
     def is_expired(self) -> bool:
         """Check if session has exceeded max duration"""
-        if self.status != SessionStatus.ACTIVE:
+        if self.status not in [SessionStatus.ACTIVE, SessionStatus.PAUSED]:
             return False
 
         duration = self._calculate_duration()

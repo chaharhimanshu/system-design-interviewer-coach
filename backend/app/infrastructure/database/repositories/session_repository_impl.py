@@ -45,7 +45,9 @@ class PostgreSQLSessionRepository(ISessionRepository):
         await self.session.refresh(session_model)
 
         logger.info(f"Session created successfully: {interview_session.session_id}")
-        return session_model.to_entity()
+
+        # Return the original entity instead of converting from model to avoid potential issues
+        return interview_session
 
     async def get_by_id(self, session_id: UUID) -> Optional[InterviewSession]:
         """Get session by ID with messages"""
@@ -89,7 +91,7 @@ class PostgreSQLSessionRepository(ISessionRepository):
             .where(
                 and_(
                     SessionModel.user_id == user_id,
-                    SessionModel.status == SessionStatus.ACTIVE.value,
+                    SessionModel.status == "active",
                 )
             )
             .order_by(desc(SessionModel.created_at))
@@ -212,7 +214,7 @@ class PostgreSQLSessionRepository(ISessionRepository):
             .where(
                 and_(
                     SessionModel.user_id == user_id,
-                    SessionModel.status == SessionStatus.COMPLETED.value,
+                    SessionModel.status == "completed",
                 )
             )
         )
@@ -224,7 +226,7 @@ class PostgreSQLSessionRepository(ISessionRepository):
             .where(
                 and_(
                     SessionModel.user_id == user_id,
-                    SessionModel.status == SessionStatus.ABANDONED.value,
+                    SessionModel.status == "abandoned",
                 )
             )
         )
@@ -236,7 +238,7 @@ class PostgreSQLSessionRepository(ISessionRepository):
             .where(
                 and_(
                     SessionModel.user_id == user_id,
-                    SessionModel.status == SessionStatus.ACTIVE.value,
+                    SessionModel.status == "active",
                 )
             )
         )

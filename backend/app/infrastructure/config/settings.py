@@ -106,6 +106,20 @@ class AISettings(BaseSettings):
     openai_timeout_seconds: int = Field(default=30, env="AI_OPENAI_TIMEOUT")
 
 
+class SSESettings(BaseSettings):
+    """Server-Sent Events configuration settings"""
+
+    model_config = SettingsConfigDict(env_prefix="SSE_", extra="ignore")
+
+    heartbeat_interval: int = Field(default=30, env="SSE_HEARTBEAT_INTERVAL")
+    connection_timeout: int = Field(default=300, env="SSE_CONNECTION_TIMEOUT")
+    retry_timeout: int = Field(default=3000, env="SSE_RETRY_TIMEOUT")
+    max_connections_per_session: int = Field(
+        default=5, env="SSE_MAX_CONNECTIONS_PER_SESSION"
+    )
+    cleanup_interval: int = Field(default=60, env="SSE_CLEANUP_INTERVAL")
+
+
 class Settings(BaseSettings):
     """Main application settings"""
 
@@ -123,6 +137,7 @@ class Settings(BaseSettings):
     api: APISettings = APISettings()
     session: SessionSettings = SessionSettings()
     ai: AISettings = AISettings()
+    sse: SSESettings = SSESettings()
 
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")

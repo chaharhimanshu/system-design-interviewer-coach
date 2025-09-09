@@ -24,7 +24,7 @@ async def check_mvp_readiness():
         "api_endpoints": False,
         "ai_services": False,
         "task_queue": False,
-        "websockets": False,
+        "sse": False,
     }
 
     # 1. Database Check
@@ -136,15 +136,15 @@ async def check_mvp_readiness():
     except Exception as e:
         print(f"❌ Task queue check failed: {e}")
 
-    # 6. WebSocket Check
-    print("\n🔌 WebSocket Check")
+    # 6. SSE Check
+    print("\n🔌 SSE Check")
     try:
-        from app.infrastructure.tasks.websocket_manager import ConnectionManager
+        from app.infrastructure.streaming.sse_manager import SSEConnectionManager
 
-        print("✅ WebSocket manager available")
-        checks["websockets"] = True
+        print("✅ SSE manager available")
+        checks["sse"] = True
     except Exception as e:
-        print(f"❌ WebSocket check failed: {e}")
+        print(f"❌ SSE check failed: {e}")
 
     # Summary
     print("\n" + "=" * 60)

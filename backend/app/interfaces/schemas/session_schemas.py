@@ -221,8 +221,8 @@ class TaskStatusResponse(BaseModel):
     retry_count: int = 0
 
 
-class WebSocketMessage(BaseModel):
-    """WebSocket message structure"""
+class SSEMessage(BaseModel):
+    """SSE message structure"""
 
     type: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)

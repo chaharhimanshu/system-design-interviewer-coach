@@ -3,8 +3,82 @@ Pydantic Models for AI Agent Structured Outputs
 """
 
 from datetime import datetime
-from typing import List, Dict, Optional, Literal, Any
+from typing import List, Dict, Optional, Literal, Any, Annotated
 from pydantic import BaseModel, Field
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+
+
+# Enhanced State Schema for Memory-Enhanced Agents
+class MemoryEnhancedInterviewState(BaseModel):
+    """Enhanced state schema with memory integration and cross-agent context"""
+
+    # Core LangGraph state
+    messages: Annotated[List[BaseMessage], add_messages] = Field(
+        default=[], description="Conversation messages with automatic memory"
+    )
+    is_last_step: bool = Field(
+        default=False, description="Whether this is the last step"
+    )
+
+    # Interview Context (Available to ALL agents and tools)
+    interview_session_id: str = Field(description="Session identifier")
+    current_topic: str = Field(description="Current interview topic")
+    difficulty_level: str = Field(description="Interview difficulty level")
+    question_count: int = Field(default=0, description="Number of questions asked")
+
+    # Performance Tracking
+    user_performance: Dict[str, Any] = Field(
+        default={}, description="Performance metrics and scores"
+    )
+    evaluation_history: List[Dict[str, Any]] = Field(
+        default=[], description="History of evaluations"
+    )
+
+    # Context Flow
+    follow_up_context: str = Field(
+        default="", description="Context for follow-up questions"
+    )
+    interview_phase: str = Field(
+        default="opening", description="Current interview phase"
+    )
+    topics_covered: List[str] = Field(
+        default=[], description="Topics covered during interview"
+    )
+
+    # Week 4 Summary Integration
+    ready_for_summary: bool = Field(
+        default=False, description="Ready for summary generation"
+    )
+    session_complete: bool = Field(
+        default=False, description="Session completion status"
+    )
+    interview_summary: Optional[Dict[str, Any]] = Field(
+        default=None, description="Generated interview summary"
+    )
+    summary_generated: bool = Field(
+        default=False, description="Whether summary has been generated"
+    )
+    summary_timestamp: Optional[datetime] = Field(
+        default=None, description="When summary was generated"
+    )
+
+    # Current Question/Answer Context
+    last_question: Optional[str] = Field(
+        default=None, description="Last question asked by the system"
+    )
+    last_question_context: Optional[Dict[str, Any]] = Field(
+        default=None, description="Context of the last question"
+    )
+    last_user_answer: Optional[str] = Field(
+        default=None, description="Last answer provided by the user"
+    )
+    last_answer_context: Optional[Dict[str, Any]] = Field(
+        default=None, description="Context of the last user answer"
+    )
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 class EvaluationScores(BaseModel):
@@ -89,6 +163,32 @@ class QuestionGeneration(BaseModel):
     )
     guidance_hints: List[str] = Field(
         description="Hints available if candidate struggles"
+    )
+    time_estimate: int = Field(
+        default=5, description="Estimated time to answer in minutes"
+    )
+    follow_up_areas: List[str] = Field(
+        default=[], description="Areas to explore in follow-up questions"
+    )
+
+
+class InterviewDecision(BaseModel):
+    """Structured decision from orchestrator agent"""
+
+    action: Literal[
+        "generate_opening",
+        "evaluate_answer",
+        "generate_follow_up",
+        "generate_clarification",
+        "provide_feedback",
+        "end_interview",
+    ] = Field(description="The action to take next")
+    reasoning: str = Field(description="Why this action was chosen")
+    confidence: float = Field(ge=0, le=1, description="Confidence in this decision")
+    context: Dict[str, Any] = Field(description="Additional context for the action")
+    should_continue: bool = Field(description="Whether the interview should continue")
+    generated_content: Optional[Dict[str, Any]] = Field(
+        default=None, description="Generated content (question, evaluation, feedback)"
     )
 
 
@@ -266,3 +366,96 @@ class SessionSummary(BaseModel):
     readiness_assessment: Dict[str, str] = Field(
         description="Assessment of readiness for different interview levels"
     )
+
+
+class InterviewState(BaseModel):
+    """Current state of the interview session"""
+
+    session_id: str
+    topic: str
+    difficulty: str = Field(description="Difficulty level as string")
+    phase: str = Field(description="Current interview phase")
+    questions_asked: int = 0
+    evaluations: List[Dict[str, Any]] = Field(
+        default=[], description="List of evaluations"
+    )
+    opening_question: Optional[Dict[str, Any]] = Field(default=None)
+    last_question: Optional[str] = None
+    last_answer: Optional[str] = None
+    ready_for_feedback: bool = False
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+# Week 4 Summary Generation Schemas
+
+
+class PerformanceAnalysis(BaseModel):
+    """Comprehensive performance analysis for interview summary"""
+
+    final_score: float = Field(ge=0, le=10, description="Overall final score")
+    performance_level: Literal["beginner", "intermediate", "advanced"] = Field(
+        description="Overall performance level achieved"
+    )
+    strongest_areas: List[str] = Field(description="Areas of demonstrated strength")
+    improvement_areas: List[str] = Field(description="Areas needing improvement")
+    technical_scores: Dict[str, float] = Field(
+        description="Detailed technical competency scores"
+    )
+    progression_trajectory: Literal[
+        "improving", "stable", "declining", "breakthrough"
+    ] = Field(description="Performance trajectory throughout interview")
+
+
+class LearningAssessment(BaseModel):
+    """Assessment of learning and adaptability during interview"""
+
+    concepts_learned: List[str] = Field(
+        description="New concepts learned during interview"
+    )
+    knowledge_applied: List[str] = Field(
+        description="Prior knowledge successfully applied"
+    )
+    adaptability_shown: bool = Field(
+        description="Whether candidate adapted to feedback"
+    )
+    feedback_incorporation: Literal["excellent", "good", "fair", "poor"] = Field(
+        description="How well feedback was incorporated"
+    )
+    curiosity_level: Literal["high", "moderate", "low"] = Field(
+        description="Level of curiosity and engagement shown"
+    )
+
+
+class RecommendationSet(BaseModel):
+    """Comprehensive recommendations for continued learning"""
+
+    immediate_focus: List[str] = Field(description="Areas to focus on immediately")
+    study_areas: List[str] = Field(description="Topics to study in depth")
+    practice_suggestions: List[str] = Field(
+        description="Specific practice recommendations"
+    )
+    next_difficulty_readiness: str = Field(
+        description="Assessment of readiness for next level"
+    )
+    specific_resources: List[str] = Field(description="Recommended learning resources")
+
+
+class InterviewSummary(BaseModel):
+    """Week 4: Comprehensive interview summary with complete analysis"""
+
+    performance_analysis: PerformanceAnalysis
+    learning_assessment: LearningAssessment
+    recommendations: RecommendationSet
+    notable_highlights: List[str] = Field(description="Key highlights and achievements")
+    session_metadata: Dict[str, Any] = Field(
+        description="Session metadata and statistics"
+    )
+    readiness_for_next_level: bool = Field(
+        description="Whether ready for next difficulty level"
+    )
+    summary_timestamp: datetime = Field(default_factory=datetime.now)
+
+    class Config:
+        json_encoders = {datetime: lambda v: v.isoformat()}
