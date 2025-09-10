@@ -111,6 +111,33 @@ class MemoryEnhancedOrchestrator:
             "MemoryEnhancedOrchestrator initialized - targeting 4-8 API calls per interview"
         )
 
+    def _serialize_for_json(self, obj) -> Dict[str, Any]:
+        """Helper method to convert Pydantic objects to JSON-serializable dicts."""
+        if hasattr(obj, "dict"):
+            data = obj.dict()
+            # Convert datetime objects to ISO strings
+            for key, value in data.items():
+                if isinstance(value, datetime):
+                    data[key] = value.isoformat()
+                elif isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        if isinstance(sub_value, datetime):
+                            value[sub_key] = sub_value.isoformat()
+            return data
+        elif isinstance(obj, dict):
+            # Handle dict objects with potential datetime values
+            result = {}
+            for key, value in obj.items():
+                if isinstance(value, datetime):
+                    result[key] = value.isoformat()
+                elif isinstance(value, dict):
+                    result[key] = self._serialize_for_json(value)
+                else:
+                    result[key] = value
+            return result
+        else:
+            return obj
+
     async def start_interview(
         self, session: InterviewSession, user_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -157,7 +184,7 @@ class MemoryEnhancedOrchestrator:
             result = {
                 "type": "opening_question",
                 "question": opening_question.question,
-                "question_generation": opening_question.dict(),
+                "question_generation": self._serialize_for_json(opening_question),
                 "context": f"Starting {difficulty.value} level interview on {topic}",
                 "expected_topics": opening_question.expected_concepts,
                 "guidance_hints": opening_question.guidance_hints,
@@ -202,9 +229,18 @@ class MemoryEnhancedOrchestrator:
                 }
                 return
 
-            # Add user answer to memory
+            # Add user answer to memory (both session state and conversation)
             await self.session_manager.add_answer_to_memory(
                 session_id=session_id, answer=user_answer
+            )
+
+            # Also add to conversation memory for context
+            await self.session_manager.add_message_to_memory(
+                session_id=session_id,
+                role="USER",
+                content=user_answer,
+                message_type="ANSWER",
+                metadata={"message_type": message_type},
             )
 
             yield {
@@ -235,12 +271,16 @@ class MemoryEnhancedOrchestrator:
                 f"Answer evaluation completed for session {session_id}",
                 extra={
                     "session_id": session_id,
-                    "overall_score": evaluation.overall_score,
+                    "overall_score": evaluation.scores.average_score,
                     "strengths_count": (
-                        len(evaluation.strengths) if evaluation.strengths else 0
+                        len(evaluation.analysis.strengths)
+                        if evaluation.analysis.strengths
+                        else 0
                     ),
                     "weaknesses_count": (
-                        len(evaluation.weaknesses) if evaluation.weaknesses else 0
+                        len(evaluation.analysis.weaknesses)
+                        if evaluation.analysis.weaknesses
+                        else 0
                     ),
                     "topic": session_state.current_topic,
                     "difficulty": session_state.difficulty_level,
@@ -249,7 +289,7 @@ class MemoryEnhancedOrchestrator:
 
             # Add evaluation to memory
             await self.session_manager.add_evaluation_to_memory(
-                session_id=session_id, evaluation=evaluation.dict()
+                session_id=session_id, evaluation=self._serialize_for_json(evaluation)
             )
 
             # Step 2: Decide next action
@@ -295,8 +335,8 @@ class MemoryEnhancedOrchestrator:
                     "type": "complete",
                     "result": {
                         "type": "final_feedback",
-                        "feedback": feedback.dict(),
-                        "evaluation": evaluation.dict(),
+                        "feedback": self._serialize_for_json(feedback),
+                        "evaluation": self._serialize_for_json(evaluation),
                         "session_id": session_id,
                         "interview_complete": True,
                         "memory_enhanced": True,
@@ -315,7 +355,7 @@ class MemoryEnhancedOrchestrator:
                 ) in self.question_generator.generate_follow_up_question_stream(
                     session_id=session_id,
                     user_answer=user_answer,
-                    evaluation_context=evaluation.dict(),
+                    evaluation_context=self._serialize_for_json(evaluation),
                 ):
                     if chunk["type"] == "complete":
                         follow_up_question = chunk["question"]
@@ -326,26 +366,134 @@ class MemoryEnhancedOrchestrator:
                             extra={
                                 "session_id": session_id,
                                 "question_preview": (
-                                    follow_up_question.question[:100] + "..."
-                                    if len(follow_up_question.question) > 100
-                                    else follow_up_question.question
+                                    follow_up_question.get("question", "")[:100] + "..."
+                                    if isinstance(follow_up_question, dict)
+                                    and len(follow_up_question.get("question", ""))
+                                    > 100
+                                    else (
+                                        follow_up_question.get("question", "")
+                                        if isinstance(follow_up_question, dict)
+                                        else (
+                                            getattr(follow_up_question, "question", "")[
+                                                :100
+                                            ]
+                                            + "..."
+                                            if len(
+                                                getattr(
+                                                    follow_up_question, "question", ""
+                                                )
+                                            )
+                                            > 100
+                                            else getattr(
+                                                follow_up_question, "question", ""
+                                            )
+                                        )
+                                    )
                                 ),
-                                "expected_concepts": follow_up_question.expected_concepts,
-                                "difficulty_level": follow_up_question.difficulty_level.value,
-                                "evaluation_score": evaluation.overall_score,
+                                "expected_concepts": (
+                                    follow_up_question.get("expected_concepts", [])
+                                    if isinstance(follow_up_question, dict)
+                                    else getattr(
+                                        follow_up_question, "expected_concepts", []
+                                    )
+                                ),
+                                "difficulty_level": (
+                                    follow_up_question.get("difficulty_level", "")
+                                    if isinstance(follow_up_question, dict)
+                                    else getattr(
+                                        follow_up_question, "difficulty_level", ""
+                                    )
+                                ),
+                                "evaluation_score": evaluation.scores.average_score,
                                 "response_type": "follow_up_question",
                             },
+                        )
+
+                        # Create JSON-serializable evaluation data
+                        evaluation_data = {
+                            "scores": {
+                                "clarity": evaluation.scores.clarity,
+                                "technical_depth": evaluation.scores.technical_depth,
+                                "scalability_awareness": evaluation.scores.scalability_awareness,
+                                "trade_offs_understanding": evaluation.scores.trade_offs_understanding,
+                                "average_score": evaluation.scores.average_score,
+                            },
+                            "analysis": {
+                                "strengths": evaluation.analysis.strengths,
+                                "weaknesses": evaluation.analysis.weaknesses,
+                                "missing_topics": evaluation.analysis.missing_topics,
+                                "technical_errors": evaluation.analysis.technical_errors,
+                            },
+                            "next_steps": {
+                                "needs_clarification": evaluation.next_steps.needs_clarification,
+                                "needs_deeper_dive": evaluation.next_steps.needs_deeper_dive,
+                                "ready_for_next_topic": evaluation.next_steps.ready_for_next_topic,
+                                "suggested_follow_up": evaluation.next_steps.suggested_follow_up,
+                                "specific_areas_to_explore": evaluation.next_steps.specific_areas_to_explore,
+                            },
+                            "confidence_level": evaluation.confidence_level,
+                            "evaluation_timestamp": (
+                                evaluation.evaluation_timestamp.isoformat()
+                                if evaluation.evaluation_timestamp
+                                else None
+                            ),
+                        }
+
+                        # Create JSON-serializable question data (already done in streaming)
+                        question_data = (
+                            follow_up_question
+                            if isinstance(follow_up_question, dict)
+                            else {
+                                "question": getattr(follow_up_question, "question", ""),
+                                "question_type": getattr(
+                                    follow_up_question, "question_type", ""
+                                ),
+                                "topics_targeted": getattr(
+                                    follow_up_question, "topics_targeted", []
+                                ),
+                                "difficulty_level": getattr(
+                                    follow_up_question, "difficulty_level", ""
+                                ),
+                                "expected_concepts": getattr(
+                                    follow_up_question, "expected_concepts", []
+                                ),
+                                "guidance_hints": getattr(
+                                    follow_up_question, "guidance_hints", []
+                                ),
+                                "time_estimate": getattr(
+                                    follow_up_question, "time_estimate", 5
+                                ),
+                                "follow_up_areas": getattr(
+                                    follow_up_question, "follow_up_areas", []
+                                ),
+                            }
                         )
 
                         yield {
                             "type": "complete",
                             "result": {
                                 "type": "follow_up_question",
-                                "question": follow_up_question.question,
-                                "question_generation": follow_up_question.dict(),
-                                "evaluation": evaluation.dict(),
-                                "expected_topics": follow_up_question.expected_concepts,
-                                "guidance_hints": follow_up_question.guidance_hints,
+                                "question": (
+                                    follow_up_question.get("question")
+                                    if isinstance(follow_up_question, dict)
+                                    else getattr(follow_up_question, "question", "")
+                                ),
+                                "question_generation": question_data,
+                                "evaluation": evaluation_data,
+                                "expected_topics": (
+                                    follow_up_question.get("expected_concepts")
+                                    if isinstance(follow_up_question, dict)
+                                    else getattr(
+                                        follow_up_question, "expected_concepts", []
+                                    )
+                                ),
+                                "guidance_hints": (
+                                    follow_up_question.get("guidance_hints")
+                                    if isinstance(follow_up_question, dict)
+                                    else getattr(
+                                        follow_up_question, "guidance_hints", []
+                                    )
+                                ),
                                 "session_id": session_id,
                                 "memory_enhanced": True,
                             },
@@ -574,12 +722,17 @@ class MemoryEnhancedOrchestrator:
 
             result = {
                 "type": "interview_summary",
-                "summary": summary.dict(),
+                "summary": self._serialize_for_json(summary),
                 "session_id": session_id,
                 "phase": InterviewPhase.SUMMARY.value,
                 "memory_enhanced": True,
                 "api_calls_used": 1,  # Single API call for comprehensive analysis
-                "generated_at": summary.summary_timestamp.isoformat(),
+                "generated_at": (
+                    summary.summary_timestamp.isoformat()
+                    if hasattr(summary, "summary_timestamp")
+                    and summary.summary_timestamp
+                    else datetime.utcnow().isoformat()
+                ),
             }
 
             logger.info(f"Week 4 summary generated successfully with 1 API call")

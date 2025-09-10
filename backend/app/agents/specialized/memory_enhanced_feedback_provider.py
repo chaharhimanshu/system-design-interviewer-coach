@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 
 class MemoryEnhancedFeedbackProvider:
     """
-    Memory-Enhanced Feedback Provider with multi-tool design.
+    Memory-Enhanced Feedback Provider with database memory and multi-tool agent.
 
     Architecture Decision: Keep multi-tool approach for feedback generation.
     Rationale (from optimization doc):
@@ -41,10 +41,10 @@ class MemoryEnhancedFeedbackProvider:
     - Minimal impact on overall API call count (2 calls vs 1)
 
     Optimizations:
-    - Full conversation memory via LangGraph MemorySaver
+    - Uses LangGraph agent pattern with database memory (no checkpointer)
     - JSON-structured outputs for consistency
-    - Cross-agent memory sharing via session manager
-    - Comprehensive analysis of entire interview
+    - Cross-agent memory sharing via database session manager
+    - Comprehensive analysis of entire interview with rich context
     """
 
     def __init__(self, session_manager: MemoryEnhancedSessionManager):
@@ -59,19 +59,19 @@ class MemoryEnhancedFeedbackProvider:
             max_tokens=self.settings.openai.max_tokens,
         )
 
-        # Create memory-enhanced React agent with feedback tools
+        # Create React agent WITHOUT checkpointer - we handle memory via database
         self.agent = create_react_agent(
             model=self.llm,
             tools=[
                 self._create_performance_analyzer_tool(),
                 self._create_recommendation_generator_tool(),
             ],
-            checkpointer=session_manager.get_memory_saver(),  # KEY: Cross-agent memory
+            checkpointer=None,  # No LangGraph memory - use database instead
             state_modifier=self._get_system_prompt(),
         )
 
         logger.info(
-            "MemoryEnhancedFeedbackProvider initialized with multi-tool approach"
+            "MemoryEnhancedFeedbackProvider initialized with agent (no checkpointer)"
         )
 
     def _get_system_prompt(self) -> str:
@@ -240,10 +240,32 @@ class MemoryEnhancedFeedbackProvider:
         )
 
         try:
-            # Use tools to generate comprehensive analysis
+            # Get current state using schema for rich context
+            state = await self.session_manager.get_session_state(session_id)
+            if not state:
+                logger.error(f"No state found for session {session_id}")
+                return self._create_fallback_feedback(session_summary)
+
+            # Get conversation history from database memory
+            conversation_messages = (
+                await self.session_manager.get_conversation_messages(session_id)
+            )
+
+            # Include conversation history plus current prompt for context
+            messages = conversation_messages + [HumanMessage(content=feedback_prompt)]
+
+            # Use tools to generate comprehensive analysis with full interview context
             response = await self.agent.ainvoke(
-                {"messages": [HumanMessage(content=feedback_prompt)]},
-                config=config,  # Complete conversation history available
+                {
+                    "messages": messages,
+                    "interview_session_id": state.interview_session_id,
+                    "current_topic": state.current_topic,
+                    "difficulty_level": state.difficulty_level,
+                    "interview_phase": state.interview_phase,
+                    "question_count": state.question_count,
+                    "evaluation_history": state.evaluation_history,
+                    "user_performance": state.user_performance,
+                }
             )
 
             # Extract tool results and synthesize feedback

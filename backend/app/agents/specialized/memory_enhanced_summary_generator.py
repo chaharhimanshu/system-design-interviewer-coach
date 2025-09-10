@@ -33,12 +33,13 @@ logger = get_logger(__name__)
 
 class MemoryEnhancedSummaryGenerator:
     """
-    Week 4: Memory-Enhanced Summary Generator with complete conversation analysis.
+    Week 4: Memory-Enhanced Summary Generator with database memory and complete conversation analysis.
 
     Features:
+    - Uses LangGraph agent pattern with database memory (no checkpointer)
     - Single API call summary generation
-    - Complete conversation memory access
-    - Performance trend analysis
+    - Complete conversation memory access via database
+    - Performance trend analysis with rich interview context
     - Learning progression assessment
     - Actionable next steps recommendations
     - JSON-structured comprehensive summaries
@@ -56,16 +57,16 @@ class MemoryEnhancedSummaryGenerator:
             max_tokens=2000,  # Increased for comprehensive summaries
         )
 
-        # Create memory-enhanced React agent
+        # Create React agent WITHOUT checkpointer - we handle memory via database
         self.agent = create_react_agent(
             model=self.llm,
             tools=[],  # No tools - direct JSON summary generation
-            checkpointer=session_manager.get_memory_saver(),  # KEY: Full conversation access
+            checkpointer=None,  # No LangGraph memory - use database instead
             state_modifier=self._get_system_prompt(),
         )
 
         logger.info(
-            "MemoryEnhancedSummaryGenerator initialized for Week 4 comprehensive analysis"
+            "MemoryEnhancedSummaryGenerator initialized with agent (no checkpointer)"
         )
 
     def _get_system_prompt(self) -> str:
@@ -105,10 +106,18 @@ class MemoryEnhancedSummaryGenerator:
 
             summary_prompt += "\n\nRespond with the exact JSON structure specified in your instructions."
 
-            # Single API call with complete state context and memory
+            # Get conversation history from database memory
+            conversation_messages = (
+                await self.session_manager.get_conversation_messages(session_id)
+            )
+
+            # Include conversation history plus current prompt for context
+            messages = conversation_messages + [HumanMessage(content=summary_prompt)]
+
+            # Single API call with complete state context and database memory
             response = await self.agent.ainvoke(
                 {
-                    "messages": [HumanMessage(content=summary_prompt)],
+                    "messages": messages,
                     "interview_session_id": state.interview_session_id,
                     "current_topic": state.current_topic,
                     "difficulty_level": state.difficulty_level,
@@ -117,8 +126,7 @@ class MemoryEnhancedSummaryGenerator:
                     "evaluation_history": state.evaluation_history,
                     "user_performance": state.user_performance,
                     "topics_covered": state.topics_covered,
-                },
-                config={"configurable": {"thread_id": session_id}},
+                }
             )
 
             # Parse comprehensive summary from response

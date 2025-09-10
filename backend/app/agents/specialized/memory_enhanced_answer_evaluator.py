@@ -33,14 +33,14 @@ logger = get_logger(__name__)
 
 class MemoryEnhancedAnswerEvaluator:
     """
-    Memory-Enhanced Answer Evaluator with conversation awareness.
+    Memory-Enhanced Answer Evaluator with database memory and agent pattern.
 
     Optimizations:
-    - Single API call design (no tools) - 85% API reduction
-    - Full conversation memory via LangGraph MemorySaver
-    - JSON-structured prompting for 40% fewer parsing errors
-    - Context-aware evaluation with performance trends
-    - Cross-agent memory sharing via session manager
+    - Uses LangGraph agent pattern with database memory (no checkpointer)
+    - JSON-structured prompting for consistent outputs
+    - Single API call (no tools) - 85% API reduction
+    - Cross-agent memory sharing via database session manager
+    - Rich interview context for intelligent evaluations
     """
 
     def __init__(self, session_manager: MemoryEnhancedSessionManager):
@@ -55,16 +55,16 @@ class MemoryEnhancedAnswerEvaluator:
             max_tokens=self.settings.openai.max_tokens,
         )
 
-        # Create memory-enhanced React agent
+        # Create React agent WITHOUT checkpointer - we handle memory via database
         self.agent = create_react_agent(
             model=self.llm,
             tools=[],  # No tools - direct JSON evaluation
-            checkpointer=session_manager.get_memory_saver(),  # KEY: Cross-agent memory
+            checkpointer=None,  # No LangGraph memory - use database instead
             state_modifier=self._get_system_prompt(),
         )
 
         logger.info(
-            "MemoryEnhancedAnswerEvaluator initialized with conversation memory"
+            "MemoryEnhancedAnswerEvaluator initialized with agent (no checkpointer)"
         )
 
     def _get_system_prompt(self) -> str:
@@ -110,10 +110,18 @@ class MemoryEnhancedAnswerEvaluator:
         )
 
         try:
-            # Single API call with full state context and memory
+            # Get conversation history from database memory
+            conversation_messages = (
+                await self.session_manager.get_conversation_messages(session_id)
+            )
+
+            # Include conversation history plus current prompt for context
+            messages = conversation_messages + [HumanMessage(content=json_prompt)]
+            logger.info(f"messages for answer {conversation_messages}")
+            # Single API call with full state context and database memory
             response = await self.agent.ainvoke(
                 {
-                    "messages": [HumanMessage(content=json_prompt)],
+                    "messages": messages,
                     "interview_session_id": state.interview_session_id,
                     "current_topic": state.current_topic,
                     "difficulty_level": state.difficulty_level,
@@ -121,12 +129,24 @@ class MemoryEnhancedAnswerEvaluator:
                     "question_count": state.question_count,
                     "evaluation_history": state.evaluation_history,
                     "user_performance": state.user_performance,
-                },
-                config=config,  # Complete conversation history automatically available
+                }
             )
-
+            logger.info(response)
             # Parse JSON response
             evaluation_data = self._parse_json_response(response)
+
+            # Store evaluation in database as system message
+            await self.session_manager.add_message_to_memory(
+                session_id=session_id,
+                role="SYSTEM",
+                content=f"Answer evaluated - Score: {evaluation_data.get('overall_score', 'N/A')}",
+                message_type="FEEDBACK",
+                metadata={
+                    "evaluation_type": "answer_evaluation",
+                    "scores": evaluation_data.get("scores", {}),
+                    "evaluation_data": evaluation_data,
+                },
+            )
 
             # Create structured evaluation object
             evaluation = self._create_evaluation_object(evaluation_data)
@@ -187,13 +207,7 @@ class MemoryEnhancedAnswerEvaluator:
 
     def _parse_json_response(self, response) -> Dict[str, Any]:
         """
-        Week 3 Enhanced JSON parsing with 41% fewer parsing errors.
-
-        Features:
-        - Multiple fallback strategies for robust JSON extraction
-        - Common JSON issue detection and auto-fixing
-        - Strict validation with helpful error messages
-        - Response structure normalization
+        Simple JSON parsing - the AI already returns proper JSON format.
         """
         try:
             # Extract content from response
@@ -202,31 +216,27 @@ class MemoryEnhancedAnswerEvaluator:
             if not content:
                 raise ValueError("No content found in response")
 
-            # Week 3 Enhancement: Try multiple parsing strategies
-            parsing_strategies = [
-                self._parse_clean_json,
-                self._parse_markdown_json,
-                self._parse_bounded_json,
-                self._parse_with_fixes,
-            ]
+            # Simple approach: try markdown JSON first, then direct parsing
+            if "```json" in content:
+                start = content.find("```json") + 7
+                end = content.find("```", start)
+                if end > start:
+                    json_str = content[start:end].strip()
+                    return json.loads(json_str)
 
-            last_error = None
-            for strategy in parsing_strategies:
-                try:
-                    evaluation_data = strategy(content)
-                    if evaluation_data:
-                        # Validate required fields and structure
-                        self._validate_evaluation_structure(evaluation_data)
-                        logger.debug(
-                            f"Successfully parsed with strategy: {strategy.__name__}"
-                        )
-                        return evaluation_data
-                except Exception as e:
-                    last_error = e
-                    continue
+            # Try direct parsing if no markdown blocks
+            content = content.strip()
+            if content.startswith("{") and content.endswith("}"):
+                return json.loads(content)
 
-            # If all strategies fail, raise the last error
-            raise last_error or ValueError("All parsing strategies failed")
+            # Fallback: find JSON boundaries
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                json_str = content[start:end]
+                return json.loads(json_str)
+
+            raise ValueError("No valid JSON found in response")
 
         except Exception as e:
             logger.error(f"JSON parsing error: {e}")
@@ -250,234 +260,48 @@ class MemoryEnhancedAnswerEvaluator:
             return str(response)
         return ""
 
-    def _parse_clean_json(self, content: str) -> Dict[str, Any]:
-        """Try parsing content directly as JSON."""
-        content = content.strip()
-        if content.startswith("{") and content.endswith("}"):
-            return json.loads(content)
-        raise ValueError("Not clean JSON format")
+    def _create_fallback_evaluation(
+        self, user_answer: str, difficulty: DifficultyLevel
+    ) -> AnswerEvaluation:
+        """Create fallback evaluation when parsing fails."""
+        logger.warning("Creating fallback evaluation")
 
-    def _parse_markdown_json(self, content: str) -> Dict[str, Any]:
-        """Extract JSON from markdown code blocks."""
-        if "```json" in content:
-            start = content.find("```json") + 7
-            end = content.find("```", start)
-            if end > start:
-                json_str = content[start:end].strip()
-                return json.loads(json_str)
-        elif "```" in content:
-            # Try any code block
-            start = content.find("```") + 3
-            end = content.find("```", start)
-            if end > start:
-                json_str = content[start:end].strip()
-                # Skip language identifier line if present
-                lines = json_str.split("\n")
-                if lines and not lines[0].strip().startswith("{"):
-                    json_str = "\n".join(lines[1:])
-                return json.loads(json_str)
-        raise ValueError("No markdown JSON found")
+        # Simple heuristic-based scoring for fallback
+        answer_length = len(user_answer.split())
+        base_score = min(7.0, max(3.0, answer_length / 20))  # Rough heuristic
 
-    def _parse_bounded_json(self, content: str) -> Dict[str, Any]:
-        """Find JSON object boundaries and extract."""
-        start = content.find("{")
-        end = content.rfind("}") + 1
-        if start >= 0 and end > start:
-            json_str = content[start:end]
-            return json.loads(json_str)
-        raise ValueError("No JSON boundaries found")
+        scores = EvaluationScores(
+            clarity=base_score,
+            technical_depth=base_score - 0.5,
+            scalability_awareness=base_score - 1.0,
+            trade_offs_understanding=base_score - 1.5,
+        )
 
-    def _parse_with_fixes(self, content: str) -> Dict[str, Any]:
-        """Try parsing with common JSON fixes applied."""
-        json_str = self._extract_json_content(content)
-        if json_str:
-            fixed_json = self._fix_common_json_issues(json_str)
-            return json.loads(fixed_json)
-        raise ValueError("Could not extract or fix JSON")
+        analysis = AnswerAnalysis(
+            strengths=["Engaged with the question", "Provided a response"],
+            weaknesses=[
+                "Could provide more technical detail",
+                "Consider additional aspects",
+            ],
+            missing_topics=["Scalability considerations", "Performance implications"],
+            technical_errors=[],
+        )
 
-    def _extract_json_content(self, content: str) -> str:
-        """Extract the most likely JSON content from response."""
-        # Try different extraction methods
-        extractions = []
+        next_steps = NextSteps(
+            needs_clarification=True,
+            needs_deeper_dive=False,
+            ready_for_next_topic=False,
+            suggested_follow_up="clarification",
+            specific_areas_to_explore=["Basic concepts", "Core requirements"],
+        )
 
-        # Method 1: Find largest JSON-like block
-        start = content.find("{")
-        end = content.rfind("}") + 1
-        if start >= 0 and end > start:
-            extractions.append(content[start:end])
-
-        # Method 2: Look for structured content between patterns
-        patterns = [
-            (r'\{[^{}]*"scores"[^{}]*\{.*?\}.*?\}', 0),
-            (r'\{.*?"analysis".*?\}', 0),
-        ]
-
-        import re
-
-        for pattern, group in patterns:
-            matches = re.findall(pattern, content, re.DOTALL)
-            extractions.extend(matches)
-
-        # Return the longest extraction (likely most complete)
-        return max(extractions, key=len) if extractions else ""
-
-    def _fix_common_json_issues(self, json_str: str) -> str:
-        """Week 3 Enhancement: Fix common JSON formatting issues."""
-        fixes = [
-            # Fix unescaped quotes in strings
-            (r'(?<!\\)"([^"]*)"([^"]*)"([^"]*)"(?=\s*[,}])', r'"\1\"\2\"\3"'),
-            # Fix trailing commas
-            (r",(\s*[}\]])", r"\1"),
-            # Fix missing commas between objects
-            (r'"\s*\n\s*"', '",\n  "'),
-            # Fix boolean values
-            (r':\s*"(true|false)"', r": \1"),
-            # Fix number values in quotes
-            (r':\s*"(\d+\.?\d*)"', r": \1"),
-            # Fix array formatting
-            (r'\[\s*"([^"]*)",?\s*"([^"]*)",?\s*\]', r'["\1", "\2"]'),
-        ]
-
-        fixed_json = json_str
-        for pattern, replacement in fixes:
-            import re
-
-            fixed_json = re.sub(pattern, replacement, fixed_json)
-
-        return fixed_json
-
-    def _validate_evaluation_structure(self, data: Dict[str, Any]):
-        """Week 3 Enhanced validation with comprehensive structure checking."""
-        required_sections = ["scores", "analysis", "next_steps"]
-
-        for section in required_sections:
-            if section not in data:
-                logger.warning(f"Missing required section: {section}")
-                data[section] = self._get_default_section(section)
-
-        # Validate scores section with Week 3 enhancements
-        if "scores" in data:
-            required_scores = [
-                "clarity",
-                "technical_depth",
-                "scalability_awareness",
-                "trade_offs_understanding",
-                "completeness",
-                "communication",
-            ]
-            for score_key in required_scores:
-                if score_key not in data["scores"]:
-                    logger.warning(f"Missing score: {score_key}")
-                    data["scores"][score_key] = 5.0  # Default middle score
-                else:
-                    # Ensure scores are numeric and in valid range
-                    try:
-                        score = float(data["scores"][score_key])
-                        data["scores"][score_key] = max(0.0, min(10.0, score))
-                    except (ValueError, TypeError):
-                        data["scores"][score_key] = 5.0
-
-        # Validate analysis section with Week 3 fields
-        if "analysis" in data:
-            required_analysis = [
-                "strengths",
-                "weaknesses",
-                "missing_topics",
-                "technical_errors",
-                "good_concepts",
-            ]
-            for analysis_key in required_analysis:
-                if analysis_key not in data["analysis"]:
-                    data["analysis"][analysis_key] = []
-                elif not isinstance(data["analysis"][analysis_key], list):
-                    # Convert single values to lists
-                    data["analysis"][analysis_key] = [
-                        str(data["analysis"][analysis_key])
-                    ]
-
-        # Validate next_steps section with Week 3 enhancements
-        if "next_steps" in data:
-            if "suggested_follow_up" not in data["next_steps"]:
-                data["next_steps"]["suggested_follow_up"] = "deeper_dive"
-
-            # Ensure boolean fields are properly typed
-            boolean_fields = [
-                "needs_clarification",
-                "needs_deeper_dive",
-                "ready_for_next_topic",
-            ]
-            for bool_field in boolean_fields:
-                if bool_field in data["next_steps"]:
-                    data["next_steps"][bool_field] = bool(
-                        data["next_steps"][bool_field]
-                    )
-
-            # Ensure specific_areas_to_explore is a list
-            if "specific_areas_to_explore" not in data["next_steps"]:
-                data["next_steps"]["specific_areas_to_explore"] = []
-            elif not isinstance(data["next_steps"]["specific_areas_to_explore"], list):
-                data["next_steps"]["specific_areas_to_explore"] = [
-                    str(data["next_steps"]["specific_areas_to_explore"])
-                ]
-
-        # Validate Week 3 new fields
-        if "confidence_level" not in data:
-            data["confidence_level"] = 0.8
-        else:
-            try:
-                data["confidence_level"] = max(
-                    0.0, min(1.0, float(data["confidence_level"]))
-                )
-            except (ValueError, TypeError):
-                data["confidence_level"] = 0.8
-
-        # Week 3 context integration validation
-        if "context_integration" not in data:
-            data["context_integration"] = {
-                "builds_on_previous": True,
-                "addresses_feedback": False,
-                "demonstrates_learning": True,
-            }
-
-        if "performance_trend" not in data:
-            data["performance_trend"] = "stable"
-
-        if "recommendations" not in data:
-            data["recommendations"] = []
-        elif not isinstance(data["recommendations"], list):
-            data["recommendations"] = [str(data["recommendations"])]
-
-        # Ensure confidence level exists
-        if "confidence_level" not in data:
-            data["confidence_level"] = 0.8
-
-    def _get_default_section(self, section: str) -> Dict[str, Any]:
-        """Week 3 Enhanced default structure for missing sections."""
-        defaults = {
-            "scores": {
-                "clarity": 5.0,
-                "technical_depth": 5.0,
-                "scalability_awareness": 5.0,
-                "trade_offs_understanding": 5.0,
-                "completeness": 5.0,
-                "communication": 5.0,
-            },
-            "analysis": {
-                "strengths": ["Engaged with the question"],
-                "weaknesses": ["Could provide more technical detail"],
-                "missing_topics": ["Additional considerations needed"],
-                "technical_errors": [],
-                "good_concepts": ["Basic understanding demonstrated"],
-            },
-            "next_steps": {
-                "needs_clarification": False,
-                "needs_deeper_dive": True,
-                "ready_for_next_topic": False,
-                "suggested_follow_up": "deeper_dive",
-                "specific_areas_to_explore": ["technical details", "scalability"],
-            },
-        }
-        return defaults.get(section, {})
+        return AnswerEvaluation(
+            scores=scores,
+            analysis=analysis,
+            next_steps=next_steps,
+            confidence_level=0.3,  # Low confidence for fallback
+            evaluation_timestamp=datetime.now(),
+        )
 
     def _create_evaluation_object(
         self, evaluation_data: Dict[str, Any]
