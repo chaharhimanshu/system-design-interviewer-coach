@@ -172,6 +172,26 @@ class MemoryEnhancedOrchestrator:
                 user_context=user_context,
             )
 
+            # Add opening question to unified conversation history
+            await self.session_manager.add_conversation_turn(
+                session_id,
+                role="assistant",
+                content=opening_question.question,
+                turn_type="question",
+                metadata={
+                    "question_type": "opening",
+                    "topic": topic,
+                    "difficulty": difficulty.value,
+                    "expected_concepts": opening_question.expected_concepts,
+                    "guidance_hints": opening_question.guidance_hints,
+                },
+            )
+
+            # Update conversation flow state
+            await self.session_manager.update_conversation_flow_state(
+                session_id, "questioning"
+            )
+
             # Update session state
             await self.session_manager.update_session_state(
                 session_id,
@@ -229,18 +249,18 @@ class MemoryEnhancedOrchestrator:
                 }
                 return
 
-            # Add user answer to memory (both session state and conversation)
-            await self.session_manager.add_answer_to_memory(
-                session_id=session_id, answer=user_answer
+            # Add user answer to unified conversation history
+            await self.session_manager.add_conversation_turn(
+                session_id,
+                role="user",
+                content=user_answer,
+                turn_type="answer",
+                metadata={"message_type": message_type},
             )
 
-            # Also add to conversation memory for context
-            await self.session_manager.add_message_to_memory(
-                session_id=session_id,
-                role="USER",
-                content=user_answer,
-                message_type="ANSWER",
-                metadata={"message_type": message_type},
+            # Update conversation flow state
+            await self.session_manager.update_conversation_flow_state(
+                session_id, "answering"
             )
 
             yield {
@@ -287,10 +307,8 @@ class MemoryEnhancedOrchestrator:
                 },
             )
 
-            # Add evaluation to memory
-            await self.session_manager.add_evaluation_to_memory(
-                session_id=session_id, evaluation=self._serialize_for_json(evaluation)
-            )
+            # Add evaluation to memory - no longer needed as evaluator handles this
+            # evaluation is automatically added to conversation history by the evaluator
 
             # Step 2: Decide next action
             should_continue = await self._should_continue_interview(
@@ -562,8 +580,9 @@ class MemoryEnhancedOrchestrator:
         # Check if summary should be generated first
         if await self.session_manager.should_generate_summary(session_id):
             # Could generate interim summary here if needed
-            await self.session_manager.update_session_state(
-                session_id, {"ready_for_summary": True}
+            await self.session_manager.update_conversation_flow_state(
+                session_id,
+                "generating_followup",  # Use valid state instead of "ready_for_summary"
             )
 
         logger.info(
@@ -711,13 +730,16 @@ class MemoryEnhancedOrchestrator:
                 difficulty_level=DifficultyLevel(session_state.difficulty_level),
             )
 
-            # Update session state
+            # Update session state and conversation flow
             await self.session_manager.update_session_state(
                 session_id,
                 {
-                    "ready_for_summary": True,
                     "interview_phase": InterviewPhase.SUMMARY.value,
                 },
+            )
+
+            await self.session_manager.update_conversation_flow_state(
+                session_id, "generating_summary"
             )
 
             result = {

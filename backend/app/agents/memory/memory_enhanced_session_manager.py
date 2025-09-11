@@ -95,7 +95,7 @@ class MemoryEnhancedSessionManager:
             Initial enhanced state
         """
         logger.info(
-            f"Initializing session with database memory strategy",
+            f"Initializing session with unified memory context",
             extra={
                 "session_id": session_id,
                 "topic": topic,
@@ -106,91 +106,245 @@ class MemoryEnhancedSessionManager:
             },
         )
 
-        # Create initial state
+        # Create initial state with new unified memory structure
         initial_state = MemoryEnhancedInterviewState(
             interview_session_id=session_id,
             current_topic=topic,
             difficulty_level=difficulty,
             interview_phase="opening",
             question_count=0,
-            user_performance={},
+            conversation_history=[],
+            conversation_flow_state="ready_for_opening",
             evaluation_history=[],
-            follow_up_context="",
-            ready_for_summary=False,
-            session_complete=False,
+            last_question=None,
+            last_user_answer=None,
         )
 
-        # Store session metadata with message storage
+        # Store session metadata
         session_metadata = {
             "topic": topic,
             "difficulty": difficulty,
             "start_time": datetime.utcnow(),
             "user_context": user_context or {},
             "state": initial_state,
-            "messages": [],  # Add message storage to session
         }
 
         self.active_sessions[session_id] = session_metadata
 
-        # Log session creation with detailed metadata
+        # Add system message to conversation history
+        await self.add_conversation_turn(
+            session_id=session_id,
+            role="AI",
+            content=f"Interview session started - Topic: {topic}, Difficulty: {difficulty}",
+            turn_type="system",
+        )
+
         logger.info(
-            f"Session initialized successfully",
+            f"Session initialized successfully with unified memory context",
             extra={
                 "session_id": session_id,
                 "topic": topic,
                 "difficulty": difficulty,
                 "initial_phase": initial_state.interview_phase,
-                "session_metadata_keys": list(session_metadata.keys()),
+                "conversation_flow_state": initial_state.conversation_flow_state,
                 "active_sessions_count": len(self.active_sessions),
-                "memory_strategy": "database_sliding_window",
+                "memory_strategy": "unified_conversation_context",
             },
         )
 
         return initial_state
 
-    async def add_answer_to_memory(
+    async def add_conversation_turn(
         self,
         session_id: str,
-        answer: str,
-        answer_context: Optional[Dict[str, Any]] = None,
-    ):
+        role: str,  # 'AI' or 'User'
+        content: str,
+        turn_type: str = "message",  # 'question', 'answer', 'system', 'message'
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """
-        Store user answer in session state with comprehensive logging.
+        Add a conversation turn to the unified conversation history.
 
         Args:
             session_id: Session identifier
-            answer: User's answer
-            answer_context: Additional context about the answer
+            role: 'AI' or 'User'
+            content: Content of the message
+            turn_type: Type of turn ('question', 'answer', 'system', 'message')
+            metadata: Additional metadata for the turn
+
+        Returns:
+            True if successful, False otherwise
         """
         if session_id not in self.active_sessions:
-            logger.warning(
-                f"Session not found in active sessions",
-                extra={
-                    "session_id": session_id,
-                    "active_sessions": list(self.active_sessions.keys()),
-                    "active_sessions_count": len(self.active_sessions),
-                    "action": "add_answer_to_memory",
-                },
-            )
-            return
+            logger.warning(f"Session {session_id} not found for conversation turn")
+            return False
 
-        # Store answer in session state for agent access
         session_data = self.active_sessions[session_id]
-        if "state" in session_data:
-            session_data["state"].last_user_answer = answer
-            session_data["state"].last_answer_context = answer_context or {}
+        state = session_data.get("state")
+
+        if not state:
+            logger.error(f"No state found for session {session_id}")
+            return False
+
+        # Create conversation turn
+        turn = {
+            "role": role,
+            "content": content,
+            "timestamp": datetime.utcnow(),
+            "type": turn_type,
+            "metadata": metadata or {},
+        }
+
+        # Add to conversation history
+        state.conversation_history.append(turn)
+
+        # Apply sliding window to conversation history
+        if len(state.conversation_history) > self.max_recent_messages:
+            state.conversation_history = state.conversation_history[
+                -self.max_recent_messages :
+            ]
+
+        # Update quick reference fields
+        if role == "AI" and turn_type == "question":
+            state.last_question = content
+        elif role == "User" and turn_type == "answer":
+            state.last_user_answer = content
 
         logger.info(
-            f"User answer stored in session state",
+            f"Conversation turn added to session {session_id}",
             extra={
                 "session_id": session_id,
-                "answer_length": len(answer),
-                "answer_preview": answer[:100] + "..." if len(answer) > 100 else answer,
-                "context_keys": list(answer_context.keys()) if answer_context else [],
-                "has_context": bool(answer_context),
-                "memory_action": "answer_stored",
+                "role": role,
+                "turn_type": turn_type,
+                "content_length": len(content),
+                "total_turns": len(state.conversation_history),
+                "memory_strategy": "unified_conversation_context",
             },
         )
+
+        return True
+
+    async def update_conversation_flow_state(
+        self, session_id: str, new_state: str
+    ) -> bool:
+        """
+        Update the conversation flow state.
+
+        Args:
+            session_id: Session identifier
+            new_state: New flow state
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if session_id not in self.active_sessions:
+            logger.warning(f"Session {session_id} not found for flow state update")
+            return False
+
+        session_data = self.active_sessions[session_id]
+        state = session_data.get("state")
+
+        if not state:
+            logger.error(f"No state found for session {session_id}")
+            return False
+
+        old_state = state.conversation_flow_state
+        state.conversation_flow_state = new_state
+
+        logger.info(
+            f"Conversation flow state updated for session {session_id}",
+            extra={
+                "session_id": session_id,
+                "old_state": old_state,
+                "new_state": new_state,
+                "memory_action": "flow_state_updated",
+            },
+        )
+
+        return True
+
+    async def get_conversation_context_for_prompt(
+        self, session_id: str, max_turns: Optional[int] = None
+    ) -> str:
+        """
+        Get conversation context formatted for AI prompts.
+
+        Args:
+            session_id: Session identifier
+            max_turns: Maximum number of recent turns to include
+
+        Returns:
+            Formatted conversation context string
+        """
+        if session_id not in self.active_sessions:
+            return ""
+
+        state = self.active_sessions[session_id].get("state")
+        if not state or not state.conversation_history:
+            return ""
+
+        # Get recent turns
+        turns_to_include = max_turns or self.max_recent_messages
+        recent_turns = state.conversation_history[-turns_to_include:]
+
+        # Format for prompt
+        context_lines = []
+        for turn in recent_turns:
+            if turn["type"] == "system":
+                context_lines.append(f"SYSTEM: {turn['content']}")
+            elif turn["role"] == "AI":
+                context_lines.append(f"AI: {turn['content']}")
+            elif turn["role"] == "User":
+                context_lines.append(f"User: {turn['content']}")
+
+        return "\n".join(context_lines)
+
+    async def get_performance_summary(self, session_id: str) -> Dict[str, Any]:
+        """
+        Get performance summary from evaluation history.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Performance summary dictionary
+        """
+        if session_id not in self.active_sessions:
+            return {}
+
+        state = self.active_sessions[session_id].get("state")
+        if not state or not state.evaluation_history:
+            return {"average_score": 0, "evaluation_count": 0, "trend": "no_data"}
+
+        evaluations = state.evaluation_history
+
+        # Calculate average score
+        scores = []
+        for eval_data in evaluations:
+            if "scores" in eval_data and "average_score" in eval_data["scores"]:
+                scores.append(eval_data["scores"]["average_score"])
+
+        avg_score = sum(scores) / len(scores) if scores else 0
+
+        # Determine trend
+        trend = "stable"
+        if len(scores) >= 2:
+            recent_avg = sum(scores[-2:]) / 2
+            earlier_avg = (
+                sum(scores[:-2]) / len(scores[:-2]) if len(scores) > 2 else scores[0]
+            )
+            if recent_avg > earlier_avg + 0.5:
+                trend = "improving"
+            elif recent_avg < earlier_avg - 0.5:
+                trend = "declining"
+
+        return {
+            "average_score": avg_score,
+            "evaluation_count": len(evaluations),
+            "trend": trend,
+            "latest_score": scores[-1] if scores else 0,
+            "score_history": scores,
+        }
 
     async def add_evaluation_to_memory(
         self, session_id: str, evaluation: Dict[str, Any]
@@ -216,9 +370,10 @@ class MemoryEnhancedSessionManager:
 
         # Update session state
         session_data = self.active_sessions[session_id]
-        if "state" in session_data:
-            session_data["state"].evaluation_history.append(evaluation)
-            evaluation_count = len(session_data["state"].evaluation_history)
+        state = session_data.get("state")
+        if state:
+            state.evaluation_history.append(evaluation)
+            evaluation_count = len(state.evaluation_history)
         else:
             evaluation_count = 0
 
@@ -228,7 +383,9 @@ class MemoryEnhancedSessionManager:
                 "session_id": session_id,
                 "evaluation_keys": list(evaluation.keys()) if evaluation else [],
                 "total_evaluations": evaluation_count,
-                "overall_score": evaluation.get("overall_score", "N/A"),
+                "overall_score": evaluation.get("scores", {}).get(
+                    "average_score", "N/A"
+                ),
                 "evaluation_type": evaluation.get("type", "unknown"),
                 "memory_action": "evaluation_stored",
             },
@@ -257,14 +414,15 @@ class MemoryEnhancedSessionManager:
             return
 
         session_data = self.active_sessions[session_id]
+        state = session_data.get("state")
         updated_fields = []
 
-        if "state" in session_data:
+        if state:
             # Track what gets updated
             for key, new_value in state_updates.items():
-                if hasattr(session_data["state"], key):
-                    old_value = getattr(session_data["state"], key, None)
-                    setattr(session_data["state"], key, new_value)
+                if hasattr(state, key):
+                    old_value = getattr(state, key, None)
+                    setattr(state, key, new_value)
                     updated_fields.append(
                         {
                             "field": key,
@@ -337,8 +495,8 @@ class MemoryEnhancedSessionManager:
             "questions_asked": state.question_count,
             "evaluations_count": len(state.evaluation_history),
             "average_score": avg_score,
-            "ready_for_summary": state.ready_for_summary,
-            "session_complete": state.session_complete,
+            "conversation_flow_state": state.conversation_flow_state,
+            "interview_phase": state.interview_phase,
             "start_time": (
                 session_data.get("start_time", "").isoformat()
                 if session_data.get("start_time")
@@ -367,7 +525,8 @@ class MemoryEnhancedSessionManager:
         return (
             state.question_count >= 5
             and len(state.evaluation_history) >= 3
-            and not state.ready_for_summary  # Haven't generated summary yet
+            and state.conversation_flow_state
+            != "generating_followup"  # Use flow state instead
         )
 
     async def cleanup_session(self, session_id: str):
@@ -429,18 +588,15 @@ class MemoryEnhancedSessionManager:
 
     async def get_memory_contents(self, session_id: str) -> Dict[str, Any]:
         """
-        Get the actual memory contents from database for debugging.
+        Get the actual memory contents for debugging.
 
         Args:
             session_id: Session identifier
 
         Returns:
-            Memory contents including all messages and state
+            Memory contents including all conversation turns and state
         """
         try:
-            # TODO: Implement actual database memory retrieval when available
-            # For now, return placeholder data based on active sessions
-
             session_in_active = session_id in self.active_sessions
             state = (
                 self.active_sessions.get(session_id, {}).get("state")
@@ -448,27 +604,35 @@ class MemoryEnhancedSessionManager:
                 else None
             )
 
+            conversation_context = ""
+            if state and state.conversation_history:
+                conversation_context = await self.get_conversation_context_for_prompt(
+                    session_id
+                )
+
             return {
                 "session_id": session_id,
-                "memory_status": "placeholder_active",
-                "memory_type": "sliding_window_placeholder",
+                "memory_status": "active" if session_in_active else "not_found",
+                "memory_type": "unified_conversation_context",
                 "sliding_window_size": self.max_recent_messages,
-                "total_messages_in_db": 0,  # Will be actual count when implemented
-                "messages_in_window": 0,  # Will be actual count when implemented
-                "conversation_messages": [],  # Will be actual messages when implemented
+                "total_conversation_turns": (
+                    len(state.conversation_history) if state else 0
+                ),
+                "conversation_history": state.conversation_history if state else [],
+                "conversation_context_formatted": conversation_context,
+                "conversation_flow_state": (
+                    state.conversation_flow_state if state else None
+                ),
                 "session_state": (
                     {
-                        "interview_session_id": getattr(
-                            state, "interview_session_id", None
-                        ),
-                        "current_topic": getattr(state, "current_topic", None),
-                        "difficulty_level": getattr(state, "difficulty_level", None),
-                        "interview_phase": getattr(state, "interview_phase", None),
-                        "question_count": getattr(state, "question_count", 0),
-                        "evaluation_history_count": len(
-                            getattr(state, "evaluation_history", [])
-                        ),
-                        "user_performance": getattr(state, "user_performance", None),
+                        "interview_session_id": state.interview_session_id,
+                        "current_topic": state.current_topic,
+                        "difficulty_level": state.difficulty_level,
+                        "interview_phase": state.interview_phase,
+                        "question_count": state.question_count,
+                        "evaluation_history_count": len(state.evaluation_history),
+                        "last_question": state.last_question,
+                        "last_user_answer": state.last_user_answer,
                     }
                     if state
                     else None
@@ -481,7 +645,7 @@ class MemoryEnhancedSessionManager:
                 "session_id": session_id,
                 "memory_status": "error",
                 "error": str(e),
-                "database_connection": "failed",
+                "memory_connection": "failed",
             }
 
     async def list_all_memory_threads(self) -> Dict[str, Any]:
@@ -533,45 +697,48 @@ class MemoryEnhancedSessionManager:
 
     async def get_conversation_messages(self, session_id: str) -> List[BaseMessage]:
         """
-        Get recent conversation messages using sliding window strategy.
+        Get recent conversation messages as LangChain BaseMessage objects.
 
         Args:
             session_id: Session identifier
 
         Returns:
-            List of recent messages (limited by max_recent_messages)
+            List of recent LangChain messages (for compatibility)
         """
         logger.debug(
             f"Retrieving conversation messages for session {session_id} with sliding window size: {self.max_recent_messages}"
         )
 
         try:
-            # Get messages from active session storage
-            if session_id in self.active_sessions:
-                messages = self.active_sessions[session_id].get("messages", [])
-                # Apply sliding window (get most recent messages)
-                recent_messages = (
-                    messages[-self.max_recent_messages :] if messages else []
-                )
-
-                logger.info(
-                    f"Conversation messages retrieved for session {session_id}",
-                    extra={
-                        "session_id": session_id,
-                        "window_size": self.max_recent_messages,
-                        "messages_found": len(recent_messages),
-                        "total_messages": len(messages),
-                        "memory_strategy": "sliding_window",
-                    },
-                )
-
-                return recent_messages
-            else:
-                logger.warning(
-                    f"Session {session_id} not found in active sessions",
-                    extra={"session_id": session_id},
-                )
+            if session_id not in self.active_sessions:
+                logger.warning(f"Session {session_id} not found in active sessions")
                 return []
+
+            state = self.active_sessions[session_id].get("state")
+            if not state or not state.conversation_history:
+                return []
+
+            # Convert conversation history to LangChain messages
+            messages = []
+            for turn in state.conversation_history:
+                if turn["role"] == "AI":
+                    messages.append(AIMessage(content=turn["content"]))
+                elif turn["role"] == "User":
+                    messages.append(HumanMessage(content=turn["content"]))
+                else:  # System
+                    messages.append(SystemMessage(content=turn["content"]))
+
+            logger.info(
+                f"Conversation messages retrieved for session {session_id}",
+                extra={
+                    "session_id": session_id,
+                    "messages_found": len(messages),
+                    "total_turns": len(state.conversation_history),
+                    "memory_strategy": "unified_conversation_context",
+                },
+            )
+
+            return messages
 
         except Exception as e:
             logger.error(
@@ -579,7 +746,6 @@ class MemoryEnhancedSessionManager:
                 extra={
                     "session_id": session_id,
                     "error_type": type(e).__name__,
-                    "window_size": self.max_recent_messages,
                 },
             )
             return []
@@ -592,71 +758,43 @@ class MemoryEnhancedSessionManager:
         message_type: str = "TEXT",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Add a message to conversation memory with comprehensive logging."""
-        logger.debug(
-            f"Adding {role} message to session {session_id}",
-            extra={
-                "session_id": session_id,
-                "role": role,
-                "message_type": message_type,
-                "content_length": len(content),
-                "has_metadata": bool(metadata),
-            },
+        """
+        Add a message to conversation memory (compatibility method).
+
+        This method maintains compatibility with existing code while using the new
+        unified conversation context internally.
+
+        Args:
+            session_id: Session identifier
+            role: Message role ('USER', 'ASSISTANT', 'SYSTEM')
+            content: Message content
+            message_type: Type of message
+            metadata: Additional metadata
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Map old role format to new format
+        role_mapping = {"USER": "User", "ASSISTANT": "AI", "SYSTEM": "AI"}
+
+        new_role = role_mapping.get(role.upper(), "AI")
+
+        # Map message type
+        turn_type = "message"
+        if message_type == "QUESTION":
+            turn_type = "question"
+        elif message_type == "ANSWER":
+            turn_type = "answer"
+        elif message_type == "SYSTEM":
+            turn_type = "system"
+
+        return await self.add_conversation_turn(
+            session_id=session_id,
+            role=new_role,
+            content=content,
+            turn_type=turn_type,
+            metadata=metadata,
         )
-
-        try:
-            # Store message in active session
-            if session_id in self.active_sessions:
-                # Create LangChain message based on role
-                if role.upper() == "USER":
-                    message = HumanMessage(content=content)
-                elif role.upper() == "ASSISTANT":
-                    message = AIMessage(content=content)
-                else:  # SYSTEM
-                    message = SystemMessage(content=content)
-
-                # Add message to session storage
-                self.active_sessions[session_id]["messages"].append(message)
-
-                # Apply sliding window: keep only recent messages
-                messages = self.active_sessions[session_id]["messages"]
-                if len(messages) > self.max_recent_messages:
-                    self.active_sessions[session_id]["messages"] = messages[
-                        -self.max_recent_messages :
-                    ]
-
-                logger.info(
-                    f"Message added to session {session_id}",
-                    extra={
-                        "session_id": session_id,
-                        "role": role.upper(),
-                        "content_length": len(content),
-                        "total_messages": len(
-                            self.active_sessions[session_id]["messages"]
-                        ),
-                        "memory_strategy": "sliding_window",
-                        "persistence": "in_memory",
-                    },
-                )
-
-                return True
-            else:
-                logger.warning(
-                    f"Session {session_id} not found, cannot add message",
-                    extra={"session_id": session_id, "role": role},
-                )
-                return False
-
-        except Exception as e:
-            logger.error(
-                f"Error adding message to session {session_id}: {e}",
-                extra={
-                    "session_id": session_id,
-                    "role": role,
-                    "error_type": type(e).__name__,
-                },
-            )
-            return False
 
     def _estimate_tokens(self, text: str) -> int:
         """Rough token estimation (1 token ≈ 4 characters)."""

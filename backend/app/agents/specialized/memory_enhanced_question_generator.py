@@ -79,43 +79,41 @@ class MemoryEnhancedQuestionGenerator:
         user_context: Optional[Dict[str, Any]] = None,
     ) -> QuestionGeneration:
         """
-        Generate opening question with state schema integration.
-
-        Week 2 Enhancement: Direct state schema access for type safety and validation.
+        Generate opening question with unified memory context integration.
         """
         logger.info(f"Generating memory-enhanced opening question for {topic}")
 
-        # Initialize state with schema
-        state = await self.session_manager.initialize_session(
-            session_id=session_id,
-            topic=topic,
-            difficulty=difficulty.value,
-            user_context=user_context,
+        # Get current state with unified memory
+        state = await self.session_manager.get_session_state(session_id)
+        if not state:
+            logger.error(f"No session state found for {session_id}")
+            return self._create_fallback_opening(topic, difficulty)
+
+        # Update conversation flow state
+        await self.session_manager.update_conversation_flow_state(
+            session_id, "generating_opening"
         )
 
-        # Get session config for memory sharing
-        config = self.session_manager.get_config(session_id)
+        # Get conversation context (should be minimal for opening)
+        conversation_context = (
+            await self.session_manager.get_conversation_context_for_prompt(
+                session_id, max_turns=5
+            )
+        )
 
-        # JSON-structured prompt with state schema context
+        # JSON-structured prompt with unified memory context
         json_prompt = OPENING_QUESTION_PROMPT_TEMPLATE.format(
             session_id=state.interview_session_id,
             topic=state.current_topic,
             difficulty=state.difficulty_level,
             phase=state.interview_phase,
             question_count=state.question_count,
+            conversation_context=conversation_context,
             user_context=json.dumps(user_context or {}, indent=2),
         )
 
         try:
-            # Store system message to start conversation tracking
-            await self.session_manager.add_message_to_memory(
-                session_id=session_id,
-                role="SYSTEM",
-                content=f"Interview session started - Topic: {topic}, Difficulty: {difficulty.value}",
-                message_type="SYSTEM",
-            )
-
-            # Get conversation history from database (should be minimal for opening)
+            # Get recent conversation messages for agent context
             conversation_messages = (
                 await self.session_manager.get_conversation_messages(session_id)
             )
@@ -123,7 +121,7 @@ class MemoryEnhancedQuestionGenerator:
             # Include conversation history plus current prompt for agent
             messages = conversation_messages + [HumanMessage(content=json_prompt)]
 
-            # Agent call with interview context - no checkpointer but with rich state
+            # Agent call with interview context
             response = await self.agent.ainvoke(
                 {
                     "messages": messages,
@@ -134,41 +132,37 @@ class MemoryEnhancedQuestionGenerator:
                     "question_count": state.question_count,
                 }
             )
-
+            logger.info(f"Opening question : {response}")
             # Parse JSON response
             question_data = self._parse_json_response(response)
+            question = QuestionGeneration(**question_data)
 
-            # Store the generated question in database
-            await self.session_manager.add_message_to_memory(
+            # Add question to unified conversation history
+            await self.session_manager.add_conversation_turn(
                 session_id=session_id,
-                role="ASSISTANT",
-                content=question_data.question,
-                message_type="QUESTION",
+                role="AI",
+                content=question.question,
+                turn_type="question",
                 metadata={
                     "question_type": "opening",
-                    "expected_concepts": question_data.expected_concepts,
+                    "expected_concepts": question.expected_concepts,
                     "difficulty": difficulty.value,
+                    "topics_targeted": question.topics_targeted,
                 },
             )
 
-            # Create structured question object
-            question = QuestionGeneration(**question_data)
-
-            # Update state using schema
-            state.question_count = 1
-            state.interview_phase = "exploration"
-
-            # Persist state updates
+            # Update session state
             await self.session_manager.update_session_state(
                 session_id,
                 {
-                    "question_count": state.question_count,
-                    "interview_phase": state.interview_phase,
+                    "question_count": 1,
+                    "interview_phase": "exploration",
+                    "conversation_flow_state": "awaiting_answer",
                 },
             )
 
             logger.info(
-                f"Opening question generated with state schema for session {session_id}"
+                f"Opening question generated with unified memory context for session {session_id}"
             )
             return question
 
@@ -180,21 +174,43 @@ class MemoryEnhancedQuestionGenerator:
         self, session_id: str, user_answer: str, evaluation_context: Dict[str, Any]
     ) -> QuestionGeneration:
         """
-        Generate intelligent follow-up with state schema and conversation memory.
-
-        Week 2 Enhancement: State schema provides type-safe access to interview context.
+        Generate intelligent follow-up with unified memory context and conversation history.
         """
         logger.info(f"Generating memory-enhanced follow-up for session {session_id}")
 
-        # Get current state using schema
+        # Get current state with unified memory
         state = await self.session_manager.get_session_state(session_id)
         if not state:
             logger.error(f"No state found for session {session_id}")
             return self._create_fallback_follow_up(user_answer)
 
-        config = self.session_manager.get_config(session_id)
+        # Update conversation flow state
+        await self.session_manager.update_conversation_flow_state(
+            session_id, "generating_followup"
+        )
 
-        # JSON prompt leveraging state schema and automatic memory
+        # Add user's answer to conversation history
+        await self.session_manager.add_conversation_turn(
+            session_id=session_id,
+            role="User",
+            content=user_answer,
+            turn_type="answer",
+            metadata=evaluation_context or {},
+        )
+
+        # Get formatted conversation context for prompt
+        conversation_context = (
+            await self.session_manager.get_conversation_context_for_prompt(
+                session_id, max_turns=10
+            )
+        )
+
+        # Get performance summary for context
+        performance_summary = await self.session_manager.get_performance_summary(
+            session_id
+        )
+
+        # JSON prompt leveraging unified memory and conversation context
         json_prompt = FOLLOW_UP_QUESTION_PROMPT_TEMPLATE.format(
             session_id=state.interview_session_id,
             topic=state.current_topic,
@@ -202,22 +218,15 @@ class MemoryEnhancedQuestionGenerator:
             phase=state.interview_phase,
             question_count=state.question_count,
             evaluation_count=len(state.evaluation_history),
-            ready_for_summary=state.ready_for_summary,
+            conversation_flow_state=state.conversation_flow_state,
+            conversation_context=conversation_context,
             user_answer=user_answer,
             evaluation_context=json.dumps(evaluation_context, indent=2),
+            performance_summary=json.dumps(performance_summary, indent=2),
         )
 
         try:
-            # Store user's answer first
-            await self.session_manager.add_message_to_memory(
-                session_id=session_id,
-                role="USER",
-                content=user_answer,
-                message_type="ANSWER",
-                metadata=evaluation_context or {},
-            )
-
-            # Get conversation history from database memory
+            # Get conversation messages for agent context
             conversation_messages = (
                 await self.session_manager.get_conversation_messages(session_id)
             )
@@ -225,7 +234,7 @@ class MemoryEnhancedQuestionGenerator:
             # Include conversation history plus current prompt for agent
             messages = conversation_messages + [HumanMessage(content=json_prompt)]
 
-            # Agent call with full interview context - no checkpointer but with rich state
+            # Agent call with full interview context and conversation memory
             response = await self.agent.ainvoke(
                 {
                     "messages": messages,
@@ -235,51 +244,52 @@ class MemoryEnhancedQuestionGenerator:
                     "interview_phase": state.interview_phase,
                     "question_count": state.question_count,
                     "evaluation_history": state.evaluation_history,
-                    "user_performance": state.user_performance,
+                    "conversation_flow_state": state.conversation_flow_state,
                 }
             )
 
             question_data = self._parse_json_response(response)
             question = QuestionGeneration(**question_data)
 
-            # Store the generated follow-up question in database
-            await self.session_manager.add_message_to_memory(
+            # Add generated follow-up question to conversation history
+            await self.session_manager.add_conversation_turn(
                 session_id=session_id,
-                role="ASSISTANT",
+                role="AI",
                 content=question.question,
-                message_type="QUESTION",
+                turn_type="question",
                 metadata={
                     "question_type": "follow_up",
                     "expected_concepts": question.expected_concepts,
-                    "reasoning": question.reasoning,
+                    "reasoning": getattr(question, "reasoning", ""),
+                    "topics_targeted": question.topics_targeted,
+                    "builds_on_previous": True,
                 },
             )
 
-            # Update state using schema
-            state.question_count += 1
+            # Update session state with intelligent phase transitions
+            new_question_count = state.question_count + 1
+            new_phase = state.interview_phase
 
-            # Check if we should transition to deep dive phase
-            if state.question_count >= 3 and state.interview_phase == "exploration":
-                state.interview_phase = "deep_dive"
-            elif state.question_count >= 5 and state.interview_phase == "deep_dive":
-                state.interview_phase = "advanced_concepts"
+            # Intelligent phase progression based on conversation depth and performance
+            if new_question_count >= 3 and state.interview_phase == "exploration":
+                if performance_summary.get("average_score", 0) > 6:
+                    new_phase = "deep_dive"
+            elif new_question_count >= 5 and state.interview_phase == "deep_dive":
+                if performance_summary.get("average_score", 0) > 7:
+                    new_phase = "advanced_concepts"
 
-            # Check if ready for summary
-            if state.question_count >= 5 and len(state.evaluation_history) >= 3:
-                state.ready_for_summary = True
-
-            # Persist state updates
+            # Update state
             await self.session_manager.update_session_state(
                 session_id,
                 {
-                    "question_count": state.question_count,
-                    "interview_phase": state.interview_phase,
-                    "ready_for_summary": state.ready_for_summary,
+                    "question_count": new_question_count,
+                    "interview_phase": new_phase,
+                    "conversation_flow_state": "awaiting_answer",
                 },
             )
 
             logger.info(
-                f"Follow-up question generated with state schema - Phase: {state.interview_phase}, Count: {state.question_count}"
+                f"Follow-up question generated with unified memory - Phase: {new_phase}, Count: {new_question_count}, Performance: {performance_summary.get('average_score', 0):.1f}"
             )
             return question
 
@@ -291,25 +301,48 @@ class MemoryEnhancedQuestionGenerator:
         self, session_id: str, user_answer: str, evaluation_context: Dict[str, Any]
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Stream follow-up question generation with memory context.
-
-        PRIORITY FEATURE: Real-time streaming with memory integration.
+        Stream follow-up question generation with unified memory context.
         """
         logger.info(f"Streaming follow-up generation for session {session_id}")
 
-        config = self.session_manager.get_config(session_id)
-
-        # Same JSON prompt as non-streaming version
-        json_prompt = STREAMING_FOLLOW_UP_PROMPT_TEMPLATE.format(
-            user_answer=user_answer,
-            evaluation_context=json.dumps(evaluation_context, indent=2),
-        )
-
         try:
-            # Stream the response generation
+            # Update conversation flow state
+            await self.session_manager.update_conversation_flow_state(
+                session_id, "generating_followup"
+            )
+
+            # Add user's answer to conversation history first
+            await self.session_manager.add_conversation_turn(
+                session_id=session_id,
+                role="User",
+                content=user_answer,
+                turn_type="answer",
+                metadata=evaluation_context or {},
+            )
+
             yield {"type": "status", "message": "Analyzing conversation history..."}
 
-            # Get conversation history from database
+            # Get formatted conversation context
+            conversation_context = (
+                await self.session_manager.get_conversation_context_for_prompt(
+                    session_id, max_turns=10
+                )
+            )
+
+            # Get performance summary
+            performance_summary = await self.session_manager.get_performance_summary(
+                session_id
+            )
+
+            # Same JSON prompt as non-streaming version
+            json_prompt = STREAMING_FOLLOW_UP_PROMPT_TEMPLATE.format(
+                user_answer=user_answer,
+                evaluation_context=json.dumps(evaluation_context, indent=2),
+                conversation_context=conversation_context,
+                performance_summary=json.dumps(performance_summary, indent=2),
+            )
+
+            # Get conversation messages for agent context
             conversation_messages = (
                 await self.session_manager.get_conversation_messages(session_id)
             )
@@ -317,44 +350,73 @@ class MemoryEnhancedQuestionGenerator:
             # Include conversation history plus current prompt for agent
             messages = conversation_messages + [HumanMessage(content=json_prompt)]
 
-            content_buffer = ""
-            async for chunk in self.agent.astream(
+            logger.debug(
+                f"Starting agent stream for session {session_id} with {len(messages)} messages"
+            )
+
+            # For now, let's use the non-streaming approach since LangGraph streaming
+            # works differently than expected. We'll get the complete response and then
+            # simulate streaming by yielding the content progressively.
+            logger.debug("Using ainvoke instead of astream for reliable response")
+
+            response = await self.agent.ainvoke(
                 {
                     "messages": messages,
-                    # Note: streaming doesn't need full context as it's for real-time generation
                 }
-            ):
-                # Stream content from agent response
-                if "messages" in chunk:
-                    for message in chunk["messages"]:
-                        if hasattr(message, "content") and message.content:
-                            yield {"type": "content", "content": message.content}
-                            content_buffer += message.content
+            )
+
+            logger.debug(f"Received response: {type(response)}")
+            logger.debug(f"Response structure: {response}")
+
+            # Extract content from the response
+            content = self._extract_content_from_response(response)
+            logger.debug(f"Extracted content length: {len(content) if content else 0}")
+
+            if not content:
+                logger.error("No content received from agent response")
+                raise ValueError("No content received from agent")
+
+            # Simulate streaming by yielding content progressively
+            chunk_size = 50  # Characters per chunk
+            for i in range(0, len(content), chunk_size):
+                chunk_content = content[i : i + chunk_size]
+                yield {"type": "content", "content": chunk_content}
 
             # Parse final response
             yield {"type": "status", "message": "Finalizing question..."}
 
-            question_data = self._parse_json_response(content_buffer)
+            logger.debug("Attempting to parse JSON from complete content")
+            question_data = self._parse_json_response(response)
+            logger.info(
+                f"Successfully parsed question data: {list(question_data.keys()) if question_data else 'None'}"
+            )
+
             question = QuestionGeneration(**question_data)
 
-            # Store the generated question in memory (was missing!)
-            await self.session_manager.add_message_to_memory(
+            # Add generated question to conversation history
+            await self.session_manager.add_conversation_turn(
                 session_id=session_id,
-                role="ASSISTANT",
+                role="AI",
                 content=question.question,
-                message_type="QUESTION",
+                turn_type="question",
                 metadata={
                     "question_type": "follow_up",
                     "expected_concepts": question.expected_concepts,
                     "reasoning": getattr(question, "reasoning", ""),
+                    "topics_targeted": question.topics_targeted,
                 },
             )
 
             # Update session state
             state = await self.session_manager.get_session_state(session_id)
             if state:
+                new_question_count = state.question_count + 1
                 await self.session_manager.update_session_state(
-                    session_id, {"question_count": state.question_count + 1}
+                    session_id,
+                    {
+                        "question_count": new_question_count,
+                        "conversation_flow_state": "awaiting_answer",
+                    },
                 )
 
             # Convert to JSON-serializable format for streaming
@@ -376,18 +438,21 @@ class MemoryEnhancedQuestionGenerator:
 
             yield {"type": "complete", "question": question_dict}
 
-            logger.info(f"Follow-up question streamed successfully")
+            logger.info(f"Follow-up question streamed successfully with unified memory")
 
         except Exception as e:
             logger.error(f"Error streaming follow-up question: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Full traceback:", exc_info=True)
+            logger.error(f"Agent response processing failed")
             fallback = self._create_fallback_follow_up(user_answer)
 
             # Store fallback question in memory too
-            await self.session_manager.add_message_to_memory(
+            await self.session_manager.add_conversation_turn(
                 session_id=session_id,
-                role="ASSISTANT",
+                role="AI",
                 content=fallback.question,
-                message_type="QUESTION",
+                turn_type="question",
                 metadata={
                     "question_type": "follow_up_fallback",
                     "expected_concepts": fallback.expected_concepts,
@@ -414,100 +479,97 @@ class MemoryEnhancedQuestionGenerator:
 
     def _parse_json_response(self, response) -> Dict[str, Any]:
         """
-        Parse JSON from LLM response with enhanced error handling.
+        Simple JSON parsing - the AI already returns proper JSON format.
         """
         try:
-            # Handle direct string content from LLM
-            if isinstance(response, str):
-                content = response
-            elif hasattr(response, "content"):
-                content = response.content
-            else:
-                content = str(response)
+            # Extract content from response
+            content = self._extract_content_from_response(response)
 
             if not content:
                 raise ValueError("No content found in response")
 
-            # Enhanced JSON extraction with multiple fallback strategies
-            json_str = None
+            logger.debug(f"Raw content to parse: {content[:200]}...")
 
-            # Strategy 1: Direct JSON (preferred - no markdown blocks)
+            # Fix common JSON issues before parsing
+            content = self._fix_common_json_issues(content)
+
+            # Clean up the content first
             content = content.strip()
-            if content.startswith("{") and content.endswith("}"):
-                json_str = content
 
-            # Strategy 2: Extract from markdown code blocks (fallback)
-            elif "```json" in content:
+            # Attempt direct JSON parsing first (most common case)
+            if content.startswith("{") and content.endswith("}"):
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Direct JSON parsing failed: {e}")
+
+            # Try markdown JSON blocks
+            if "```json" in content:
                 start = content.find("```json") + 7
                 end = content.find("```", start)
                 if end > start:
                     json_str = content[start:end].strip()
+                    try:
+                        return json.loads(json_str)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Markdown JSON parsing failed: {e}")
 
-            # Strategy 3: Find JSON object boundaries (fallback)
-            elif "{" in content and "}" in content:
-                start = content.find("{")
-                end = content.rfind("}") + 1
-                if start >= 0 and end > start:
-                    json_str = content[start:end]
+            # Fallback: find JSON boundaries more aggressively
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                json_str = content[start:end]
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Boundary JSON parsing failed: {e}")
 
-            if not json_str:
-                raise ValueError("No JSON structure found in response")
+            logger.error(f"No valid JSON found in content: {content}")
+            raise ValueError("No valid JSON found in response")
+            raise ValueError("No valid JSON found in response")
 
-            # Week 3: Strict JSON parsing with validation
-            try:
-                question_data = json.loads(json_str)
-            except json.JSONDecodeError as e:
-                logger.warning(f"JSON parsing failed, attempting cleanup: {e}")
-                # Attempt to fix common JSON issues
-                json_str = self._fix_common_json_issues(json_str)
-                question_data = json.loads(json_str)
+        except Exception as e:
+            logger.error(f"Error parsing JSON response: {e}")
+            logger.debug(f"Full content that failed: {content if 'content' in locals() else 'No content available'}")
+            logger.debug(
+                f"Full content that failed: {content if 'content' in locals() else 'No content available'}"
+            )
+            raise
 
-            # Week 3: Enhanced field validation with detailed error reporting
-            validation_errors = []
-            required_fields = {
-                "question": str,
-                "question_type": str,
-                "topics_targeted": list,
-                "difficulty_level": str,
-                "expected_concepts": list,
-                "guidance_hints": list,
-                "time_estimate": (int, float),
-                "follow_up_areas": list,
-            }
+    def _extract_content_from_response(self, response) -> str:
+        """Extract content from various response types, including agent responses."""
+        try:
+            # Handle agent response with messages
+            if isinstance(response, dict) and "messages" in response:
+                messages = response["messages"]
+                if messages and len(messages) > 0:
+                    # Get the last message (which should be the AI's response)
+                    last_message = messages[-1]
+                    if hasattr(last_message, "content"):
+                        return last_message.content
+                    elif isinstance(last_message, dict) and "content" in last_message:
+                        return last_message["content"]
 
-            for field, expected_type in required_fields.items():
-                if field not in question_data:
-                    validation_errors.append(f"Missing required field: {field}")
-                    question_data[field] = self._get_default_value(field)
-                elif not isinstance(question_data[field], expected_type):
-                    validation_errors.append(
-                        f"Field {field} has wrong type: expected {expected_type}, got {type(question_data[field])}"
-                    )
-                    question_data[field] = self._get_default_value(field)
+            # Handle direct AIMessage
+            elif hasattr(response, "content"):
+                return response.content
 
-            # Week 3: Optional fields with defaults
-            optional_fields = {
-                "reasoning": "Generated based on conversation context",
-                "builds_on_previous": True,
-                "complexity_progression": "same",
-            }
+            # Handle string response
+            elif isinstance(response, str):
+                return response
 
-            for field, default_value in optional_fields.items():
-                if field not in question_data:
-                    question_data[field] = default_value
+            # Handle dict with content
+            elif isinstance(response, dict) and "content" in response:
+                return response["content"]
 
-            if validation_errors:
-                logger.warning(f"JSON validation issues: {validation_errors}")
+            # Fallback to string conversion
+            else:
+                logger.warning(f"Unknown response type: {type(response)}")
+                return str(response)
 
-            # Week 3: Additional content quality validation
-            self._validate_content_quality(question_data)
-
-            return question_data
-
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Week 3 JSON parsing error: {e}")
-            logger.debug(f"Content that failed to parse: {content[:500]}...")
-            raise ValueError(f"Failed to parse JSON response: {e}")
+        except Exception as e:
+            logger.error(f"Error extracting content from response: {e}")
+            return str(response)
 
     def _fix_common_json_issues(self, json_str: str) -> str:
         """Fix common JSON formatting issues - Week 3 enhancement."""

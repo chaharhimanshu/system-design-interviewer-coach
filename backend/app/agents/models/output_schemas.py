@@ -13,68 +13,41 @@ from langgraph.graph.message import add_messages
 class MemoryEnhancedInterviewState(BaseModel):
     """Enhanced state schema with memory integration and cross-agent context"""
 
-    # Core LangGraph state
-    messages: Annotated[List[BaseMessage], add_messages] = Field(
-        default=[], description="Conversation messages with automatic memory"
-    )
-    is_last_step: bool = Field(
-        default=False, description="Whether this is the last step"
-    )
-
     # Interview Context (Available to ALL agents and tools)
     interview_session_id: str = Field(description="Session identifier")
     current_topic: str = Field(description="Current interview topic")
     difficulty_level: str = Field(description="Interview difficulty level")
     question_count: int = Field(default=0, description="Number of questions asked")
 
+    # Unified Conversation Memory - NEW: AI/User conversation in structured format
+    conversation_history: List[Dict[str, Any]] = Field(
+        default=[],
+        description="Chronological conversation: [{'role': 'AI'|'User', 'content': str, 'timestamp': datetime, 'type': 'question'|'answer'}]",
+    )
+
+    # Q&A Flow State - NEW: Track current state in conversation flow
+    conversation_flow_state: Optional[str] = Field(
+        default="ready_for_opening",
+        description="Current Q&A flow state: 'ready_for_opening', 'awaiting_answer', 'evaluating', 'generating_followup'",
+    )
+
     # Performance Tracking
-    user_performance: Dict[str, Any] = Field(
-        default={}, description="Performance metrics and scores"
-    )
     evaluation_history: List[Dict[str, Any]] = Field(
-        default=[], description="History of evaluations"
+        default=[], description="History of evaluations for follow-up context"
     )
 
-    # Context Flow
-    follow_up_context: str = Field(
-        default="", description="Context for follow-up questions"
-    )
+    # Interview Progress
     interview_phase: str = Field(
-        default="opening", description="Current interview phase"
-    )
-    topics_covered: List[str] = Field(
-        default=[], description="Topics covered during interview"
+        default="opening",
+        description="Current interview phase: 'opening', 'exploration', 'deep_dive', 'wrap_up'",
     )
 
-    # Week 4 Summary Integration
-    ready_for_summary: bool = Field(
-        default=False, description="Ready for summary generation"
-    )
-    session_complete: bool = Field(
-        default=False, description="Session completion status"
-    )
-    interview_summary: Optional[Dict[str, Any]] = Field(
-        default=None, description="Generated interview summary"
-    )
-    summary_generated: bool = Field(
-        default=False, description="Whether summary has been generated"
-    )
-    summary_timestamp: Optional[datetime] = Field(
-        default=None, description="When summary was generated"
-    )
-
-    # Current Question/Answer Context
+    # Quick Reference Context (for fast access without parsing conversation_history)
     last_question: Optional[str] = Field(
         default=None, description="Last question asked by the system"
     )
-    last_question_context: Optional[Dict[str, Any]] = Field(
-        default=None, description="Context of the last question"
-    )
     last_user_answer: Optional[str] = Field(
         default=None, description="Last answer provided by the user"
-    )
-    last_answer_context: Optional[Dict[str, Any]] = Field(
-        default=None, description="Context of the last user answer"
     )
 
     class Config:

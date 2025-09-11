@@ -1,6 +1,21 @@
 """
 Memory-Enhanced Summary Generator Agent - Week 4 Implementation
-Single API call summary generation with complete conversation analysis
+Single API call summary generation with c            # Get performance summary for agent context
+            performance_summary = await self.session_manager.get_performance_summary(session_id)
+
+            # Single API call with comprehensive state context
+            response = await self.agent.ainvoke(
+                {
+                    "messages": messages,
+                    "interview_session_id": state.interview_session_id,
+                    "current_topic": state.current_topic,
+                    "difficulty_level": state.difficulty_level,
+                    "interview_phase": state.interview_phase,
+                    "question_count": state.question_count,
+                    "evaluation_history": state.evaluation_history,
+                    "performance_summary": performance_summary,
+                    "topics_covered": state.topics_covered,
+                }rsation analysis
 """
 
 import json
@@ -93,12 +108,9 @@ class MemoryEnhancedSummaryGenerator:
                 interview_phase=state.interview_phase,
                 topics_covered=", ".join(state.topics_covered),
                 evaluation_count=len(state.evaluation_history),
-                user_performance=state.user_performance.__dict__,
-                average_score=state.user_performance.average_score,
-                questions_answered=state.user_performance.questions_answered,
-                correct_responses=state.user_performance.correct_responses,
-                current_streak=state.user_performance.current_streak,
-                best_performance=state.user_performance.best_performance,
+                performance_summary=await self.session_manager.get_performance_summary(
+                    session_id
+                ),
                 evaluation_history_summary=self._format_evaluation_history_summary(
                     state.evaluation_history
                 ),
@@ -114,6 +126,11 @@ class MemoryEnhancedSummaryGenerator:
             # Include conversation history plus current prompt for context
             messages = conversation_messages + [HumanMessage(content=summary_prompt)]
 
+            # Get performance summary for agent context
+            performance_summary = await self.session_manager.get_performance_summary(
+                session_id
+            )
+
             # Single API call with complete state context and database memory
             response = await self.agent.ainvoke(
                 {
@@ -124,7 +141,7 @@ class MemoryEnhancedSummaryGenerator:
                     "interview_phase": state.interview_phase,
                     "question_count": state.question_count,
                     "evaluation_history": state.evaluation_history,
-                    "user_performance": state.user_performance,
+                    "performance_summary": performance_summary,
                     "topics_covered": state.topics_covered,
                 }
             )

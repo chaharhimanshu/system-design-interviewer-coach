@@ -254,6 +254,11 @@ class MemoryEnhancedFeedbackProvider:
             # Include conversation history plus current prompt for context
             messages = conversation_messages + [HumanMessage(content=feedback_prompt)]
 
+            # Get performance summary for agent context
+            performance_summary = await self.session_manager.get_performance_summary(
+                session_id
+            )
+
             # Use tools to generate comprehensive analysis with full interview context
             response = await self.agent.ainvoke(
                 {
@@ -264,7 +269,7 @@ class MemoryEnhancedFeedbackProvider:
                     "interview_phase": state.interview_phase,
                     "question_count": state.question_count,
                     "evaluation_history": state.evaluation_history,
-                    "user_performance": state.user_performance,
+                    "performance_summary": performance_summary,
                 }
             )
 

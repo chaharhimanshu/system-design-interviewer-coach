@@ -80,22 +80,36 @@ class MemoryEnhancedAnswerEvaluator:
         difficulty: DifficultyLevel,
     ) -> AnswerEvaluation:
         """
-        Evaluate user answer with state schema and conversation memory context.
-
-        Week 2 Enhancement: State schema provides type-safe context and performance tracking.
+        Evaluate user answer with unified memory context and conversation history.
         """
-        logger.info(f"Evaluating answer with state schema for session {session_id}")
+        logger.info(
+            f"Evaluating answer with unified memory context for session {session_id}"
+        )
 
-        # Get current state using schema
+        # Get current state with unified memory
         state = await self.session_manager.get_session_state(session_id)
         if not state:
-            logger.error(f"No state found for session {session_id}")
+            logger.error(f"No session state found for {session_id}")
             return self._create_fallback_evaluation(user_answer, difficulty)
 
-        # Get session config for memory access
-        config = self.session_manager.get_config(session_id)
+        # Update conversation flow state
+        await self.session_manager.update_conversation_flow_state(
+            session_id, "evaluating"
+        )
 
-        # JSON-structured evaluation prompt with state schema context
+        # Get formatted conversation context for evaluation
+        conversation_context = (
+            await self.session_manager.get_conversation_context_for_prompt(
+                session_id, max_turns=15  # More context for evaluation
+            )
+        )
+
+        # Get performance summary for trend analysis
+        performance_summary = await self.session_manager.get_performance_summary(
+            session_id
+        )
+
+        # Enhanced JSON prompt with unified memory context
         json_prompt = ANSWER_EVALUATION_PROMPT_TEMPLATE.format(
             session_id=state.interview_session_id,
             topic=state.current_topic,
@@ -103,22 +117,29 @@ class MemoryEnhancedAnswerEvaluator:
             phase=state.interview_phase,
             question_count=state.question_count,
             evaluation_count=len(state.evaluation_history),
-            has_performance_data=bool(state.user_performance),
-            question=question,
+            has_performance_data=bool(
+                performance_summary.get("evaluation_count", 0) > 0
+            ),
+            conversation_flow_state=state.conversation_flow_state,
+            conversation_context=conversation_context,
+            question=question or state.last_question or "Previous question context",
             user_answer=user_answer,
-            ready_for_summary=state.ready_for_summary,
+            performance_summary=json.dumps(performance_summary, indent=2),
         )
 
         try:
-            # Get conversation history from database memory
+            # Get conversation history from database memory for agent context
             conversation_messages = (
                 await self.session_manager.get_conversation_messages(session_id)
             )
 
-            # Include conversation history plus current prompt for context
+            # Include conversation history plus current prompt for agent context
             messages = conversation_messages + [HumanMessage(content=json_prompt)]
-            logger.info(f"messages for answer {conversation_messages}")
-            # Single API call with full state context and database memory
+            logger.info(
+                f"Agent messages for answer evaluation: {len(messages)} messages"
+            )
+
+            # Use agent for evaluation with full state context and database memory
             response = await self.agent.ainvoke(
                 {
                     "messages": messages,
@@ -128,81 +149,47 @@ class MemoryEnhancedAnswerEvaluator:
                     "interview_phase": state.interview_phase,
                     "question_count": state.question_count,
                     "evaluation_history": state.evaluation_history,
-                    "user_performance": state.user_performance,
+                    "conversation_context": conversation_context,
+                    "performance_summary": performance_summary,
                 }
             )
-            logger.info(response)
-            # Parse JSON response
-            evaluation_data = self._parse_json_response(response)
+            logger.info(f"Agent evaluation response: {response}")
 
-            # Store evaluation in database as system message
-            await self.session_manager.add_message_to_memory(
-                session_id=session_id,
-                role="SYSTEM",
-                content=f"Answer evaluated - Score: {evaluation_data.get('overall_score', 'N/A')}",
-                message_type="FEEDBACK",
-                metadata={
-                    "evaluation_type": "answer_evaluation",
-                    "scores": evaluation_data.get("scores", {}),
-                    "evaluation_data": evaluation_data,
-                },
-            )
+            # Parse agent JSON response
+            evaluation_data = self._parse_json_response(response)
 
             # Create structured evaluation object
             evaluation = self._create_evaluation_object(evaluation_data)
 
-            # Update state with evaluation results
+            # Update state with evaluation
             state.evaluation_history.append(evaluation_data)
+            # Note: last_evaluation removed from unified schema
 
-            # Update user performance tracking in state
-            if not state.user_performance:
-                state.user_performance = {}
-
-            # Track performance metrics using state
-            scores = evaluation_data.get("scores", {})
-            avg_score = sum(scores.values()) / len(scores) if scores else 0
-
-            performance_update = {
-                "latest_score": avg_score,
-                "evaluation_count": len(state.evaluation_history),
-                "total_questions": state.question_count,
-            }
-
-            # Calculate trend if we have multiple evaluations
-            if len(state.evaluation_history) > 1:
-                prev_scores = state.evaluation_history[-2].get("scores", {})
-                prev_avg = (
-                    sum(prev_scores.values()) / len(prev_scores) if prev_scores else 0
-                )
-                performance_update["score_trend"] = (
-                    "improving"
-                    if avg_score > prev_avg
-                    else "stable" if abs(avg_score - prev_avg) < 0.5 else "declining"
-                )
-
-            state.user_performance.update(performance_update)
-
-            # Persist state updates
-            await self.session_manager.update_session_state(
+            # Add evaluation to unified conversation history
+            await self.session_manager.add_conversation_turn(
                 session_id,
-                {
-                    "evaluation_history": state.evaluation_history,
-                    "user_performance": state.user_performance,
+                role="assistant",
+                content=f"Answer Evaluation - Score: {evaluation_data.get('overall_score', 'N/A')}/10, Analysis: {evaluation_data.get('analysis_summary', 'Evaluation completed')}",
+                turn_type="evaluation",
+                metadata={
+                    "evaluation_data": evaluation_data,
+                    "topic": topic,
+                    "difficulty": difficulty.value,
                 },
             )
 
-            # Add evaluation to memory for cross-agent sharing
-            await self.session_manager.add_evaluation_to_memory(
-                session_id, evaluation_data
+            # Update conversation flow state
+            await self.session_manager.update_conversation_flow_state(
+                session_id, "evaluated"
             )
 
             logger.info(
-                f"Answer evaluated with state schema - Score: {avg_score:.1f}, Phase: {state.interview_phase}"
+                f"Answer evaluation completed for session {session_id} using agent-based approach"
             )
             return evaluation
 
         except Exception as e:
-            logger.error(f"Error evaluating answer with state schema: {e}")
+            logger.error(f"Error in answer evaluation for session {session_id}: {e}")
             return self._create_fallback_evaluation(user_answer, difficulty)
 
     def _parse_json_response(self, response) -> Dict[str, Any]:
@@ -259,6 +246,40 @@ class MemoryEnhancedAnswerEvaluator:
         else:
             return str(response)
         return ""
+
+    def _parse_llm_response(self, content: str) -> Dict[str, Any]:
+        """
+        Parse LLM response content to extract evaluation data.
+        """
+        try:
+            if not content:
+                raise ValueError("No content found in response")
+
+            # Simple approach: try markdown JSON first, then direct parsing
+            if "```json" in content:
+                start = content.find("```json") + 7
+                end = content.find("```", start)
+                if end > start:
+                    json_str = content[start:end].strip()
+                    return json.loads(json_str)
+
+            # Try direct parsing if no markdown blocks
+            content = content.strip()
+            if content.startswith("{") and content.endswith("}"):
+                return json.loads(content)
+
+            # Fallback: find JSON boundaries
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                json_str = content[start:end]
+                return json.loads(json_str)
+
+            raise ValueError("No valid JSON found in response")
+
+        except Exception as e:
+            logger.error(f"Error parsing LLM response: {e}")
+            raise
 
     def _create_fallback_evaluation(
         self, user_answer: str, difficulty: DifficultyLevel

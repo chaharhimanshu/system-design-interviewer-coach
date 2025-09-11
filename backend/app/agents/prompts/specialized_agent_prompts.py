@@ -105,7 +105,7 @@ ENHANCED STATE CONTEXT:
 - Current Phase: {phase}
 - Questions Asked: {question_count}
 - Evaluations Done: {evaluation_count}
-- Ready for Summary: {ready_for_summary}
+- Conversation Flow State: {conversation_flow_state}
 
 CURRENT INTERACTION:
 - User's Latest Answer: {user_answer}
@@ -267,7 +267,7 @@ PERFORMANCE CONTEXT FROM STATE:
 - Total Questions: {question_count}
 - Evaluation History: {evaluation_count} prior evaluations
 - Interview Phase: {phase}
-- Ready for Summary: {ready_for_summary}
+- Conversation Flow State: {conversation_flow_state}
 
 CONVERSATION MEMORY CONTEXT:
 You have automatic access to:
