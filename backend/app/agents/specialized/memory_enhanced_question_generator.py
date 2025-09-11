@@ -479,7 +479,7 @@ class MemoryEnhancedQuestionGenerator:
 
     def _parse_json_response(self, response) -> Dict[str, Any]:
         """
-        Simple JSON parsing - the AI already returns proper JSON format.
+        Simple JSON parser for AI responses that contain markdown JSON blocks.
         """
         try:
             # Extract content from response
@@ -490,47 +490,35 @@ class MemoryEnhancedQuestionGenerator:
 
             logger.debug(f"Raw content to parse: {content[:200]}...")
 
-            # Fix common JSON issues before parsing
-            content = self._fix_common_json_issues(content)
-
-            # Clean up the content first
-            content = content.strip()
-
-            # Attempt direct JSON parsing first (most common case)
-            if content.startswith("{") and content.endswith("}"):
-                try:
-                    return json.loads(content)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Direct JSON parsing failed: {e}")
-
-            # Try markdown JSON blocks
+            # Extract JSON from markdown code block
             if "```json" in content:
                 start = content.find("```json") + 7
                 end = content.find("```", start)
                 if end > start:
                     json_str = content[start:end].strip()
-                    try:
-                        return json.loads(json_str)
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Markdown JSON parsing failed: {e}")
+                    logger.debug(f"Extracted JSON from markdown block")
 
-            # Fallback: find JSON boundaries more aggressively
+                    # Parse the JSON directly - Python's json module handles escaping correctly
+                    return json.loads(json_str)
+
+            # If no markdown block, try to find JSON boundaries
             start = content.find("{")
             end = content.rfind("}") + 1
             if start >= 0 and end > start:
                 json_str = content[start:end]
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Boundary JSON parsing failed: {e}")
+                return json.loads(json_str)
 
             logger.error(f"No valid JSON found in content: {content}")
             raise ValueError("No valid JSON found in response")
-            raise ValueError("No valid JSON found in response")
 
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed: {e}")
+            logger.error(
+                f"JSON content that failed: {json_str if 'json_str' in locals() else 'Unknown'}"
+            )
+            raise
         except Exception as e:
             logger.error(f"Error parsing JSON response: {e}")
-            logger.debug(f"Full content that failed: {content if 'content' in locals() else 'No content available'}")
             logger.debug(
                 f"Full content that failed: {content if 'content' in locals() else 'No content available'}"
             )
@@ -570,22 +558,6 @@ class MemoryEnhancedQuestionGenerator:
         except Exception as e:
             logger.error(f"Error extracting content from response: {e}")
             return str(response)
-
-    def _fix_common_json_issues(self, json_str: str) -> str:
-        """Fix common JSON formatting issues - Week 3 enhancement."""
-        # Remove trailing commas
-        json_str = json_str.replace(",}", "}").replace(",]", "]")
-
-        # Fix unquoted boolean values
-        json_str = json_str.replace(": true", ": true").replace(": false", ": false")
-        json_str = json_str.replace(': "true"', ": true").replace(
-            ': "false"', ": false"
-        )
-
-        # Fix single quotes to double quotes
-        json_str = json_str.replace("'", '"')
-
-        return json_str
 
     def _validate_content_quality(self, question_data: Dict[str, Any]) -> None:
         """Validate content quality - Week 3 enhancement."""
