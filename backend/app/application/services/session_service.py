@@ -237,7 +237,7 @@ class SessionService:
         session = await self.get_session(session_id)
 
         try:
-            new_status = SessionStatus(status.upper())
+            new_status = SessionStatus(status.lower())
         except ValueError:
             valid_statuses = [s.value for s in SessionStatus]
             raise ValidationError(
