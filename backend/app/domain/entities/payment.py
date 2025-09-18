@@ -210,7 +210,9 @@ class Payment:
         self.discount_amount = discount_amount or Decimal("0")
         self.receipt = receipt
         self.failure_reason = failure_reason
-        self.metadata = metadata or {}
+        self.payment_metadata = (
+            metadata or {}
+        )  # Renamed from 'metadata' to 'payment_metadata'
         self.created_at = created_at or datetime.now(timezone.utc)
         self.updated_at = updated_at or datetime.now(timezone.utc)
 
@@ -256,7 +258,7 @@ class Payment:
         self.updated_at = datetime.now(timezone.utc)
 
         # Add to metadata
-        self.metadata.update(
+        self.payment_metadata.update(
             {
                 "coupon_code": coupon.code,
                 "coupon_type": coupon.coupon_type.value,
@@ -310,6 +312,6 @@ class Payment:
             "original_amount": float(self.original_amount),
             "discount_amount": float(self.discount_amount),
             "final_amount": float(self.amount),
-            "coupon_code": self.metadata.get("coupon_code"),
+            "coupon_code": self.payment_metadata.get("coupon_code"),
             "savings": f"₹{self.discount_amount:,.2f}",
         }

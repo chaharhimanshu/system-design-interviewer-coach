@@ -5,7 +5,11 @@ System Design Interview Coach - User Service MVP
 
 import os
 import uvicorn
+import warnings
 from contextlib import asynccontextmanager
+
+# Suppress pkg_resources deprecation warnings from third-party libraries
+warnings.filterwarnings("ignore", category=UserWarning, module="razorpay.client")
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

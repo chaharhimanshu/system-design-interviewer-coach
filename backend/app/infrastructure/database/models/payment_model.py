@@ -101,7 +101,7 @@ class PaymentModel(Base):
     failure_reason = Column(Text, nullable=True)
 
     # Additional metadata
-    metadata = Column(JSON, nullable=True)
+    payment_metadata = Column(JSON, nullable=True)  # Renamed from metadata
 
     # Timestamps
     created_at = Column(
@@ -155,7 +155,7 @@ class PaymentModel(Base):
             ),
             coupon_applied=payment.coupon_applied,
             failure_reason=payment.failure_reason,
-            metadata=payment.metadata,
+            payment_metadata=payment.metadata,  # Updated field name
             created_at=payment.created_at,
             updated_at=payment.updated_at,
             authorized_at=payment.authorized_at,
@@ -193,7 +193,7 @@ class PaymentModel(Base):
             razorpay_details=razorpay_details,
             coupon_applied=self.coupon_applied,
             failure_reason=self.failure_reason,
-            metadata=self.metadata,
+            metadata=self.payment_metadata,  # Updated field name
             created_at=self.created_at,
             updated_at=self.updated_at,
             authorized_at=self.authorized_at,
@@ -218,7 +218,7 @@ class PaymentModel(Base):
 
         self.coupon_applied = payment.coupon_applied
         self.failure_reason = payment.failure_reason
-        self.metadata = payment.metadata
+        self.payment_metadata = payment.metadata  # Updated field name
         self.updated_at = payment.updated_at
         self.authorized_at = payment.authorized_at
         self.captured_at = payment.captured_at
@@ -270,7 +270,7 @@ class CouponModel(Base):
 
     # Metadata
     created_by = Column(String(255), nullable=True)
-    metadata = Column(JSON, nullable=True)
+    coupon_metadata = Column(JSON, nullable=True)
 
     # Timestamps
     created_at = Column(
@@ -307,7 +307,7 @@ class CouponModel(Base):
             valid_until=coupon.valid_until,
             status=coupon.status,
             created_by=coupon.created_by,
-            metadata=coupon.metadata,
+            coupon_metadata=coupon.metadata,
             created_at=coupon.created_at,
             updated_at=coupon.updated_at,
         )
@@ -329,7 +329,7 @@ class CouponModel(Base):
             valid_until=self.valid_until,
             status=self.status,
             created_by=self.created_by,
-            metadata=self.metadata,
+            metadata=self.coupon_metadata,
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
@@ -348,5 +348,5 @@ class CouponModel(Base):
         self.valid_until = coupon.valid_until
         self.status = coupon.status
         self.created_by = coupon.created_by
-        self.metadata = coupon.metadata
+        self.coupon_metadata = coupon.metadata
         self.updated_at = coupon.updated_at

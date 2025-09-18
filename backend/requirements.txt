@@ -22,6 +22,9 @@ python-dateutil>=2.8.2
 # Payment Gateway
 razorpay>=1.4.1
 
+# Pin setuptools to avoid pkg_resources deprecation warning from razorpay
+setuptools<81
+
 # HTTP Client
 httpx>=0.25.2
 
