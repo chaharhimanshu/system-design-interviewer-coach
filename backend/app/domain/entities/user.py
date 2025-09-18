@@ -75,7 +75,12 @@ class SubscriptionDetails:
     is_trial: bool = False
     trial_ends_at: Optional[datetime] = None
     auto_renew: bool = True
-    payment_method_id: Optional[str] = None  # For future Stripe integration
+    payment_method_id: Optional[str] = None  # For Razorpay integration
+
+    # Interview tracking for subscription limits
+    interviews_this_month: int = 0
+    interviews_today: int = 0
+    last_interview_date: Optional[datetime] = None
 
     @property
     def is_active(self) -> bool:
@@ -277,23 +282,119 @@ class User:
         """Get session limits based on subscription"""
         limits = {
             SubscriptionTier.FREE: {
-                "sessions_per_day": 2,
-                "sessions_per_month": 10,
-                "max_session_duration": 30,  # minutes
+                "interviews_per_month": 2,  # Changed from sessions to interviews
+                "max_interview_duration": 30,  # minutes
+                "can_access_premium_features": False,
             },
             SubscriptionTier.PREMIUM: {
-                "sessions_per_day": 10,
-                "sessions_per_month": -1,  # unlimited
-                "max_session_duration": 60,
+                "interviews_per_month": -1,  # unlimited
+                "max_interview_duration": 60,
+                "can_access_premium_features": True,
             },
             SubscriptionTier.ENTERPRISE: {
-                "sessions_per_day": -1,  # unlimited
-                "sessions_per_month": -1,
-                "max_session_duration": 90,
+                "interviews_per_month": -1,  # unlimited
+                "max_interview_duration": 90,
+                "can_access_premium_features": True,
             },
         }
 
         return limits.get(self.subscription.tier, limits[SubscriptionTier.FREE])
+
+    def can_create_interview(self) -> tuple[bool, str]:
+        """Check if user can create a new interview based on subscription limits"""
+        limits = self.get_session_limits()
+        max_interviews = limits.get("interviews_per_month", 0)
+
+        # Unlimited interviews for premium users
+        if max_interviews == -1:
+            return True, "Unlimited interviews available"
+
+        # Check monthly limit for free users
+        if self.subscription.interviews_this_month >= max_interviews:
+            if self.subscription.tier == SubscriptionTier.FREE:
+                return (
+                    False,
+                    f"Free plan limit reached ({max_interviews} interviews per month). Upgrade to Premium for unlimited interviews!",
+                )
+            return False, f"Monthly limit of {max_interviews} interviews reached"
+
+        remaining = max_interviews - self.subscription.interviews_this_month
+        return True, f"{remaining} interviews remaining this month"
+
+    def record_interview_started(self) -> None:
+        """Record that user started a new interview"""
+        now = datetime.now(timezone.utc)
+
+        # Reset daily counter if it's a new day
+        if (
+            self.subscription.last_interview_date
+            and self.subscription.last_interview_date.date() != now.date()
+        ):
+            self.subscription.interviews_today = 0
+
+        # Reset monthly counter if it's a new month
+        if self.subscription.last_interview_date and (
+            self.subscription.last_interview_date.month != now.month
+            or self.subscription.last_interview_date.year != now.year
+        ):
+            self.subscription.interviews_this_month = 0
+
+        # Increment counters
+        self.subscription.interviews_this_month += 1
+        self.subscription.interviews_today += 1
+        self.subscription.last_interview_date = now
+
+        self._mark_as_updated()
+
+    def upgrade_to_premium(
+        self, is_lifetime: bool = False, payment_id: Optional[str] = None
+    ) -> None:
+        """Upgrade user to premium subscription"""
+        now = datetime.now(timezone.utc)
+
+        if is_lifetime:
+            # Lifetime subscription - no expiry date
+            self.subscription = SubscriptionDetails(
+                tier=SubscriptionTier.PREMIUM,
+                started_at=now,
+                expires_at=None,  # No expiry for lifetime
+                is_trial=False,
+                payment_method_id=payment_id,
+                auto_renew=False,  # Not applicable for lifetime
+                interviews_this_month=0,  # Reset counters on upgrade
+                interviews_today=0,
+                last_interview_date=self.subscription.last_interview_date,
+            )
+        else:
+            # Monthly subscription
+            from dateutil.relativedelta import relativedelta
+
+            expires_at = now + relativedelta(months=1)
+
+            self.subscription = SubscriptionDetails(
+                tier=SubscriptionTier.PREMIUM,
+                started_at=now,
+                expires_at=expires_at,
+                is_trial=False,
+                payment_method_id=payment_id,
+                auto_renew=True,
+                interviews_this_month=0,  # Reset counters on upgrade
+                interviews_today=0,
+                last_interview_date=self.subscription.last_interview_date,
+            )
+
+        self._mark_as_updated()
+
+    def get_upgrade_benefits(self) -> dict:
+        """Get benefits of upgrading to premium"""
+        return {
+            "unlimited_interviews": "Create unlimited interviews per month",
+            "extended_duration": "Up to 60 minutes per interview session",
+            "advanced_feedback": "Detailed performance analysis and suggestions",
+            "priority_support": "Priority customer support",
+            "no_ads": "Ad-free interview experience",
+            "progress_tracking": "Detailed progress reports and analytics",
+        }
 
     def _mark_as_updated(self) -> None:
         """Mark entity as updated"""

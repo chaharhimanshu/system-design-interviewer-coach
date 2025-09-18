@@ -11,8 +11,10 @@ import httpx
 import os
 from uuid import UUID
 
+from app.domain.entities.user import User
 from app.shared.logging import get_logger, log_endpoint_call, log_auth_event, log_error
 from app.application.services.auth_service import AuthenticationService
+from app.application.services.user_service import UserService
 from app.domain.repositories.user_repository import IUserRepository
 from app.interfaces.schemas.user_schemas import (
     UserResponse,
@@ -27,6 +29,9 @@ from app.shared.exceptions import (
     AuthorizationError,
     UserNotFoundError,
     InvalidTokenError,
+    ValidationError,
+    BusinessRuleError,
+    ResourceNotFoundError,
 )
 
 
@@ -65,6 +70,13 @@ async def get_auth_service(
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
         google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", ""),
     )
+
+
+async def get_user_service(
+    user_repository: IUserRepository = Depends(get_user_repository),
+) -> UserService:
+    """Get user service instance with proper repository abstraction"""
+    return UserService(user_repository)
 
 
 async def get_current_user(
@@ -197,7 +209,7 @@ async def authenticate_with_google(
 async def refresh_token(
     refresh_request: RefreshTokenRequest,
     auth_service: AuthenticationService = Depends(get_auth_service),
-    user_repository: IUserRepository = Depends(get_user_repository),
+    user_service: UserService = Depends(get_user_service),
 ):
     """Refresh access token using refresh token"""
     try:
@@ -205,9 +217,9 @@ async def refresh_token(
             refresh_request.refresh_token
         )
 
-        # Get user info for response
+        # Get user info for response using service layer
         user_id = auth_service.extract_user_id_from_token(access_token)
-        user = await user_repository.get_by_id(user_id)
+        user = await user_service.get_user_profile(user_id)
 
         return TokenResponse(
             access_token=access_token,
@@ -230,20 +242,27 @@ async def get_current_user_profile(current_user=Depends(get_current_user)):
 @router.put("/me/profile", response_model=UserResponse)
 async def update_user_profile(
     profile_update: UserProfileUpdate,
-    current_user=Depends(get_current_user),
-    user_repository: IUserRepository = Depends(get_user_repository),
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
 ):
     """Update current user's profile"""
     try:
-        # Update profile
-        current_user.update_profile(profile_update.dict(exclude_unset=True))
-
-        # Save to database
-        updated_user = await user_repository.update(current_user)
+        # Use service layer for proper encapsulation
+        updated_user = await user_service.update_user_profile(
+            user_id=current_user.user_id,
+            profile_data=profile_update.dict(exclude_unset=True),
+        )
 
         return UserResponse.from_entity(updated_user)
 
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except BusinessRuleError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
     except Exception as e:
+        logger.error(f"Profile update failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Profile update failed: {str(e)}",
@@ -253,20 +272,23 @@ async def update_user_profile(
 @router.put("/me/preferences", response_model=UserResponse)
 async def update_user_preferences(
     preferences_update: UserPreferencesUpdate,
-    current_user=Depends(get_current_user),
-    user_repository: IUserRepository = Depends(get_user_repository),
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
 ):
     """Update current user's preferences"""
     try:
-        # Update preferences
-        current_user.update_preferences(preferences_update.dict(exclude_unset=True))
-
-        # Save to database
-        updated_user = await user_repository.update(current_user)
+        # Use service layer for proper encapsulation
+        updated_user = await user_service.update_user_preferences(
+            user_id=current_user.user_id,
+            preferences_data=preferences_update.dict(exclude_unset=True),
+        )
 
         return UserResponse.from_entity(updated_user)
 
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        logger.error(f"Preferences update failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Preferences update failed: {str(e)}",
@@ -277,8 +299,8 @@ async def update_user_preferences(
 async def upgrade_subscription(
     tier: str,
     duration_months: int = 1,
-    current_user=Depends(get_current_user),
-    user_repository: IUserRepository = Depends(get_user_repository),
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
 ):
     """Upgrade user subscription - ready for payment integration"""
     try:
@@ -296,15 +318,24 @@ async def upgrade_subscription(
         # TODO: Integrate with payment processor (Stripe)
         # For MVP, we'll just upgrade without payment
 
-        current_user.upgrade_subscription(subscription_tier, duration_months)
-        updated_user = await user_repository.update(current_user)
+        # Use service layer for proper encapsulation
+        updated_user = await user_service.upgrade_user_subscription(
+            user_id=current_user.user_id,
+            tier=subscription_tier,
+            duration_months=duration_months,
+        )
 
         return {
             "message": "Subscription upgraded successfully",
             "user": UserResponse.from_entity(updated_user),
         }
 
+    except BusinessRuleError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
     except Exception as e:
+        logger.error(f"Subscription upgrade failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Subscription upgrade failed: {str(e)}",
@@ -315,8 +346,8 @@ async def upgrade_subscription(
 async def start_trial(
     tier: str,
     trial_days: int = 14,
-    current_user=Depends(get_current_user),
-    user_repository: IUserRepository = Depends(get_user_repository),
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
 ):
     """Start trial subscription"""
     try:
@@ -331,22 +362,22 @@ async def start_trial(
                 detail=f"Invalid subscription tier: {tier}",
             )
 
-        # Check if user already had a trial
-        if current_user.subscription.is_trial:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User already used trial period",
-            )
-
-        current_user.start_trial(subscription_tier, trial_days)
-        updated_user = await user_repository.update(current_user)
+        # Use service layer for proper business rule validation
+        updated_user = await user_service.start_user_trial(
+            user_id=current_user.user_id, tier=subscription_tier, trial_days=trial_days
+        )
 
         return {
             "message": "Trial started successfully",
             "user": UserResponse.from_entity(updated_user),
         }
 
+    except BusinessRuleError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
     except Exception as e:
+        logger.error(f"Trial start failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Trial start failed: {str(e)}",
@@ -355,20 +386,51 @@ async def start_trial(
 
 @router.delete("/me")
 async def deactivate_account(
-    current_user=Depends(get_current_user),
-    user_repository: IUserRepository = Depends(get_user_repository),
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
 ):
     """Deactivate current user's account"""
     try:
-        current_user.deactivate("User requested account deactivation")
-        await user_repository.update(current_user)
+        # Use service layer for proper business rule handling
+        await user_service.deactivate_user(
+            user_id=current_user.user_id, reason="User requested account deactivation"
+        )
 
         return {"message": "Account deactivated successfully"}
 
     except Exception as e:
+        logger.error(f"Account deactivation failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Account deactivation failed: {str(e)}",
+        )
+
+
+@router.get("/interview-stats")
+async def get_interview_statistics(
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Get current user's interview statistics and limits"""
+    log_endpoint_call(
+        logger, "/users/interview-stats", "GET", user_id=str(current_user.user_id)
+    )
+
+    try:
+        stats = await user_service.get_user_interview_stats(current_user.user_id)
+        return {
+            "success": True,
+            "data": stats,
+            "message": "Interview statistics retrieved successfully",
+        }
+
+    except ResourceNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to get interview stats: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve interview statistics",
         )
 
 
@@ -467,27 +529,3 @@ async def dev_login(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Dev login failed: {str(e)}",
         )
-
-
-async def get_current_user_ws(token: str = None):
-    """Get current user for SSE connections"""
-    if not token:
-        return None
-
-    try:
-        # Create dependency instances for SSE
-        from app.infrastructure.database.config import db_config
-        from app.domain.entities.user import User
-
-        db_session = await db_config.get_session()
-        user_repository = PostgreSQLUserRepository(db_session)
-        auth_service = AuthenticationService(user_repository)
-
-        # Verify token and get user
-        user = await auth_service.get_user_from_token(token)
-        await db_session.close()
-        return user
-
-    except Exception as e:
-        logger.error(f"SSE authentication failed: {e}")
-        return None

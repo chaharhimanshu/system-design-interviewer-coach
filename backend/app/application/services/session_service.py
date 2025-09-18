@@ -408,24 +408,3 @@ class SessionService:
 
 # Global session service instance
 session_service: Optional[SessionService] = None
-
-
-# NOTE: This function is used for MVP testing with in-memory repositories
-# For production, use the dependency injection in async_session_endpoints.py
-async def get_session_service_in_memory() -> SessionService:
-    """Get or create global session service instance with in-memory repositories for testing"""
-    global session_service
-
-    if session_service is None:
-        from app.infrastructure.repositories.in_memory_session_repository import (
-            InMemorySessionRepository,
-        )
-        from app.infrastructure.repositories.in_memory_user_repository import (
-            InMemoryUserRepository,
-        )
-
-        session_repo = InMemorySessionRepository()
-        user_repo = InMemoryUserRepository()
-        session_service = SessionService(session_repo, user_repo)
-
-    return session_service

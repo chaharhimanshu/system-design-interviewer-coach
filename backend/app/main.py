@@ -6,10 +6,9 @@ System Design Interview Coach - User Service MVP
 import os
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 # Load environment variables from .env file
@@ -31,6 +30,7 @@ from app.interfaces.api.v1.user_endpoints import router as user_router
 from app.interfaces.api.v1.session_stream_endpoints import (
     router as stream_session_router,
 )
+from app.interfaces.api.v1.payment_endpoints import router as payment_router
 
 # Import exceptions
 from app.shared.exceptions import SDCoachException
@@ -119,6 +119,9 @@ def create_app() -> FastAPI:
 
     # Include streaming session router with API prefix (real-time streaming endpoints)
     app.include_router(stream_session_router, prefix="/api/v1")
+
+    # Include payment router with API prefix
+    app.include_router(payment_router, prefix="/api/v1")
 
     return app
 

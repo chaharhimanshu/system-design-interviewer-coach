@@ -160,28 +160,3 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int  # seconds
     user: UserResponse
-
-
-class UserListResponse(BaseModel):
-    """User list response with pagination"""
-
-    users: List[UserResponse]
-    total: int
-    offset: int
-    limit: int
-    has_more: bool
-
-
-class SubscriptionUpgradeRequest(BaseModel):
-    """Subscription upgrade request"""
-
-    tier: SubscriptionTier
-    duration_months: int = Field(default=1, ge=1, le=24)
-    payment_method_id: Optional[str] = None  # For future Stripe integration
-
-
-class TrialStartRequest(BaseModel):
-    """Trial start request"""
-
-    tier: SubscriptionTier
-    trial_days: int = Field(default=14, ge=1, le=30)

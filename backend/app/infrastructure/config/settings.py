@@ -120,6 +120,26 @@ class SSESettings(BaseSettings):
     cleanup_interval: int = Field(default=60, env="SSE_CLEANUP_INTERVAL")
 
 
+class RazorpaySettings(BaseSettings):
+    """Razorpay payment gateway configuration"""
+
+    model_config = SettingsConfigDict(env_prefix="RAZORPAY_", extra="ignore")
+
+    key_id: str = Field(..., env="RAZORPAY_KEY_ID")
+    key_secret: str = Field(..., env="RAZORPAY_KEY_SECRET")
+    webhook_secret: str = Field(..., env="RAZORPAY_WEBHOOK_SECRET")
+
+    # Pricing configuration
+    lifetime_price_inr: int = Field(
+        default=999, env="LIFETIME_PRICE_INR"
+    )  # ₹999 for lifetime
+    monthly_price_inr: int = Field(default=99, env="MONTHLY_PRICE_INR")  # ₹99 per month
+
+    # Business settings
+    currency: str = Field(default="INR", env="RAZORPAY_CURRENCY")
+    receipt_prefix: str = Field(default="sdi_", env="RAZORPAY_RECEIPT_PREFIX")
+
+
 class Settings(BaseSettings):
     """Main application settings"""
 
@@ -138,6 +158,7 @@ class Settings(BaseSettings):
     session: SessionSettings = SessionSettings()
     ai: AISettings = AISettings()
     sse: SSESettings = SSESettings()
+    razorpay: RazorpaySettings = RazorpaySettings()
 
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")

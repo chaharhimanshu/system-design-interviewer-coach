@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field, field_validator
 from app.domain.entities.session import (
     SessionStatus,
     DifficultyLevel,
-    MessageRole,
     MessageType,
 )
 
@@ -51,21 +50,6 @@ class MessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=5000)
     message_type: MessageType = Field(default=MessageType.TEXT)
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
-
-
-class MessageResponse(BaseModel):
-    """Response model for messages"""
-
-    message_id: UUID
-    role: MessageRole
-    content: str
-    message_type: MessageType
-    timestamp: datetime
-    metadata: Dict[str, Any]
-    tokens_used: int
-
-    class Config:
-        from_attributes = True
 
 
 class SessionResponse(BaseModel):
@@ -118,120 +102,3 @@ class SessionListResponse(BaseModel):
     sessions: List[SessionResponse]
     total_count: int
     has_more: bool
-
-
-class SessionMetricsResponse(BaseModel):
-    """Response model for session metrics"""
-
-    session_id: UUID
-    status: SessionStatus
-    topic: str
-    difficulty: DifficultyLevel
-    duration_seconds: int
-    total_messages: int
-    user_messages: int
-    assistant_messages: int
-    total_tokens_used: int
-    started_at: datetime
-    ended_at: Optional[datetime]
-
-
-class UserSessionStatsResponse(BaseModel):
-    """Response model for user session statistics"""
-
-    user_id: UUID
-    total_sessions: int
-    completed_sessions: int
-    abandoned_sessions: int
-    active_sessions: int
-    total_time_spent: int  # in seconds
-    average_session_duration: float  # in minutes
-    favorite_topics: List[str]
-    difficulty_breakdown: Dict[str, int]
-    monthly_activity: Dict[str, int]  # month -> session count
-
-
-class ConversationHistoryResponse(BaseModel):
-    """Response for conversation history"""
-
-    session_id: UUID
-    messages: List[MessageResponse]
-    total_messages: int
-
-
-class SessionActionRequest(BaseModel):
-    """Request for session actions (extend, complete, abandon)"""
-
-    action: str = Field(..., pattern="^(extend|complete|abandon)$")
-    additional_minutes: Optional[int] = Field(None, ge=5, le=60)  # For extend action
-    reason: Optional[str] = Field(None, max_length=500)
-
-    @field_validator("additional_minutes")
-    @classmethod
-    def validate_extend_minutes(cls, v, info):
-        if info.data.get("action") == "extend" and v is None:
-            raise ValueError("additional_minutes required for extend action")
-        return v
-
-
-class AsyncMessageResponse(BaseModel):
-    """Response model for async message processing"""
-
-    message_id: UUID
-    role: MessageRole
-    content: str
-    message_type: MessageType
-    timestamp: datetime
-    metadata: Dict[str, Any]
-    tokens_used: int
-
-    # Async processing info
-    task_id: str
-    task_status: str
-    estimated_completion_seconds: Optional[int] = None
-
-    class Config:
-        from_attributes = True
-
-
-class TaskProgressInfo(BaseModel):
-    """Task progress information"""
-
-    current_step: str
-    completed_steps: int
-    total_steps: int
-    percentage: float
-    message: str
-    details: Optional[Dict[str, Any]] = None
-
-
-class TaskStatusResponse(BaseModel):
-    """Response model for task status"""
-
-    task_id: str
-    status: str  # pending, processing, completed, failed, cancelled, retrying
-    task_type: str
-    session_id: UUID
-    created_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    progress: Optional[TaskProgressInfo] = None
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    retry_count: int = 0
-
-
-class SSEMessage(BaseModel):
-    """SSE message structure"""
-
-    type: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-    data: Optional[Dict[str, Any]] = None
-
-    # Specific message types
-    task_id: Optional[str] = None
-    session_id: Optional[str] = None
-    user_id: Optional[str] = None
-
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}

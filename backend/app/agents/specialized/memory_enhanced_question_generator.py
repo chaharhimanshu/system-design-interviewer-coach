@@ -53,6 +53,7 @@ class MemoryEnhancedQuestionGenerator:
             temperature=0.4,  # Balanced creativity/consistency for questions
             api_key=self.settings.openai.api_key,
             max_tokens=self.settings.openai.max_tokens,
+            streaming=True,
         )
 
         # Create React agent WITHOUT checkpointer - we handle memory via database
@@ -170,133 +171,6 @@ class MemoryEnhancedQuestionGenerator:
             logger.error(f"Error generating opening question: {e}")
             return self._create_fallback_opening(topic, difficulty)
 
-    async def generate_follow_up_question(
-        self, session_id: str, user_answer: str, evaluation_context: Dict[str, Any]
-    ) -> QuestionGeneration:
-        """
-        Generate intelligent follow-up with unified memory context and conversation history.
-        """
-        logger.info(f"Generating memory-enhanced follow-up for session {session_id}")
-
-        # Get current state with unified memory
-        state = await self.session_manager.get_session_state(session_id)
-        if not state:
-            logger.error(f"No state found for session {session_id}")
-            return self._create_fallback_follow_up(user_answer)
-
-        # Update conversation flow state
-        await self.session_manager.update_conversation_flow_state(
-            session_id, "generating_followup"
-        )
-
-        # Add user's answer to conversation history
-        await self.session_manager.add_conversation_turn(
-            session_id=session_id,
-            role="User",
-            content=user_answer,
-            turn_type="answer",
-            metadata=evaluation_context or {},
-        )
-
-        # Get formatted conversation context for prompt
-        conversation_context = (
-            await self.session_manager.get_conversation_context_for_prompt(
-                session_id, max_turns=10
-            )
-        )
-
-        # Get performance summary for context
-        performance_summary = await self.session_manager.get_performance_summary(
-            session_id
-        )
-
-        # JSON prompt leveraging unified memory and conversation context
-        json_prompt = FOLLOW_UP_QUESTION_PROMPT_TEMPLATE.format(
-            session_id=state.interview_session_id,
-            topic=state.current_topic,
-            difficulty=state.difficulty_level,
-            phase=state.interview_phase,
-            question_count=state.question_count,
-            evaluation_count=len(state.evaluation_history),
-            conversation_flow_state=state.conversation_flow_state,
-            conversation_context=conversation_context,
-            user_answer=user_answer,
-            evaluation_context=json.dumps(evaluation_context, indent=2),
-            performance_summary=json.dumps(performance_summary, indent=2),
-        )
-
-        try:
-            # Get conversation messages for agent context
-            conversation_messages = (
-                await self.session_manager.get_conversation_messages(session_id)
-            )
-
-            # Include conversation history plus current prompt for agent
-            messages = conversation_messages + [HumanMessage(content=json_prompt)]
-
-            # Agent call with full interview context and conversation memory
-            response = await self.agent.ainvoke(
-                {
-                    "messages": messages,
-                    "interview_session_id": state.interview_session_id,
-                    "current_topic": state.current_topic,
-                    "difficulty_level": state.difficulty_level,
-                    "interview_phase": state.interview_phase,
-                    "question_count": state.question_count,
-                    "evaluation_history": state.evaluation_history,
-                    "conversation_flow_state": state.conversation_flow_state,
-                }
-            )
-
-            question_data = self._parse_json_response(response)
-            question = QuestionGeneration(**question_data)
-
-            # Add generated follow-up question to conversation history
-            await self.session_manager.add_conversation_turn(
-                session_id=session_id,
-                role="AI",
-                content=question.question,
-                turn_type="question",
-                metadata={
-                    "question_type": "follow_up",
-                    "expected_concepts": question.expected_concepts,
-                    "reasoning": getattr(question, "reasoning", ""),
-                    "topics_targeted": question.topics_targeted,
-                    "builds_on_previous": True,
-                },
-            )
-
-            # Update session state with intelligent phase transitions
-            new_question_count = state.question_count + 1
-            new_phase = state.interview_phase
-
-            # Intelligent phase progression based on conversation depth and performance
-            if new_question_count >= 3 and state.interview_phase == "exploration":
-                if performance_summary.get("average_score", 0) > 6:
-                    new_phase = "deep_dive"
-            elif new_question_count >= 5 and state.interview_phase == "deep_dive":
-                if performance_summary.get("average_score", 0) > 7:
-                    new_phase = "advanced_concepts"
-
-            # Update state
-            await self.session_manager.update_session_state(
-                session_id,
-                {
-                    "question_count": new_question_count,
-                    "interview_phase": new_phase,
-                    "conversation_flow_state": "awaiting_answer",
-                },
-            )
-
-            logger.info(
-                f"Follow-up question generated with unified memory - Phase: {new_phase}, Count: {new_question_count}, Performance: {performance_summary.get('average_score', 0):.1f}"
-            )
-            return question
-
-        except Exception as e:
-            logger.error(f"Error generating follow-up question: {e}")
-            return self._create_fallback_follow_up(user_answer)
-
     async def generate_follow_up_question_stream(
         self, session_id: str, user_answer: str, evaluation_context: Dict[str, Any]
     ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -354,39 +228,36 @@ class MemoryEnhancedQuestionGenerator:
                 f"Starting agent stream for session {session_id} with {len(messages)} messages"
             )
 
-            # For now, let's use the non-streaming approach since LangGraph streaming
-            # works differently than expected. We'll get the complete response and then
-            # simulate streaming by yielding the content progressively.
-            logger.debug("Using ainvoke instead of astream for reliable response")
+            # Use real agent streaming
+            logger.debug("Using astream for real-time streaming")
 
-            response = await self.agent.ainvoke(
-                {
-                    "messages": messages,
-                }
-            )
+            accumulated_content = ""
 
-            logger.debug(f"Received response: {type(response)}")
-            logger.debug(f"Response structure: {response}")
+            async for chunk in self.agent.astream(
+                {"messages": messages},
+                config={"configurable": {"thread_id": session_id}},
+            ):
+                # Handle agent response chunks
+                if "agent" in chunk and chunk["agent"].get("messages"):
+                    message = chunk["agent"]["messages"][-1]
+                    if hasattr(message, "content") and message.content:
+                        content_chunk = message.content
+                        accumulated_content += content_chunk
 
-            # Extract content from the response
-            content = self._extract_content_from_response(response)
-            logger.debug(f"Extracted content length: {len(content) if content else 0}")
+                        # Yield real-time streaming content
+                        yield {"type": "content", "content": content_chunk}
 
-            if not content:
-                logger.error("No content received from agent response")
+            logger.info(f"Accumulated content length: {len(accumulated_content)}")
+
+            if not accumulated_content:
+                logger.error("No content received from agent stream")
                 raise ValueError("No content received from agent")
-
-            # Simulate streaming by yielding content progressively
-            chunk_size = 50  # Characters per chunk
-            for i in range(0, len(content), chunk_size):
-                chunk_content = content[i : i + chunk_size]
-                yield {"type": "content", "content": chunk_content}
 
             # Parse final response
             yield {"type": "status", "message": "Finalizing question..."}
 
-            logger.debug("Attempting to parse JSON from complete content")
-            question_data = self._parse_json_response(response)
+            logger.debug("Attempting to parse JSON from accumulated content")
+            question_data = self._parse_json_from_content(accumulated_content)
             logger.info(
                 f"Successfully parsed question data: {list(question_data.keys()) if question_data else 'None'}"
             )
@@ -522,6 +393,43 @@ class MemoryEnhancedQuestionGenerator:
             logger.debug(
                 f"Full content that failed: {content if 'content' in locals() else 'No content available'}"
             )
+            raise
+
+    def _parse_json_from_content(self, content: str) -> Dict[str, Any]:
+        """
+        Parse JSON directly from content string (for streaming responses).
+        """
+        try:
+            if not content:
+                raise ValueError("No content provided")
+
+            logger.debug(f"Parsing JSON from content: {content[:200]}...")
+
+            # Extract JSON from markdown code block
+            if "```json" in content:
+                start = content.find("```json") + 7
+                end = content.find("```", start)
+                if end > start:
+                    json_str = content[start:end].strip()
+                    logger.debug(f"Extracted JSON from markdown block")
+                    return json.loads(json_str)
+
+            # If no markdown block, try to find JSON boundaries
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                json_str = content[start:end]
+                return json.loads(json_str)
+
+            logger.error(f"No valid JSON found in content: {content}")
+            raise ValueError("No valid JSON found in content")
+
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed: {e}")
+            logger.error(f"Content that failed: {content}")
+            raise
+        except Exception as e:
+            logger.error(f"Error parsing JSON from content: {e}")
             raise
 
     def _extract_content_from_response(self, response) -> str:

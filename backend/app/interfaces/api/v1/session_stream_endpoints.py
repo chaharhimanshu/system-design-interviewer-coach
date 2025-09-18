@@ -23,11 +23,13 @@ from app.shared.exceptions import (
     ConflictError,
     ResourceNotFoundError,
     ValidationError,
+    BusinessRuleError,
 )
 
 # Import dependencies
 from app.interfaces.api.v1.user_endpoints import get_current_user
 from app.application.services.session_service import SessionService
+from app.application.services.user_service import UserService
 from app.application.services.ai_service import AIService
 from app.infrastructure.database.repositories.session_repository_impl import (
     PostgreSQLSessionRepository,
@@ -53,6 +55,12 @@ async def get_session_service(db=Depends(get_db_session)) -> SessionService:
     session_repository = PostgreSQLSessionRepository(db)
     user_repository = PostgreSQLUserRepository(db)
     return SessionService(session_repository, user_repository)
+
+
+async def get_user_service(db=Depends(get_db_session)) -> UserService:
+    """Get user service with PostgreSQL repositories"""
+    user_repository = PostgreSQLUserRepository(db)
+    return UserService(user_repository)
 
 
 async def get_ai_service() -> AIService:
@@ -83,11 +91,30 @@ async def create_session(
     session_request: CreateSessionRequest,
     current_user: User = Depends(get_current_user),
     session_service: SessionService = Depends(get_session_service),
+    user_service: UserService = Depends(get_user_service),
 ):
     """Create a new interview session"""
     log_endpoint_call(logger, "/sessions", "POST", user_id=str(current_user.user_id))
 
     try:
+        # Check interview limits before creating session
+        can_create, reason = await user_service.check_interview_creation_limits(
+            current_user.user_id
+        )
+
+        if not can_create:
+            logger.warning(
+                f"Interview creation blocked for user {current_user.user_id}: {reason}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "Interview limit exceeded",
+                    "message": reason,
+                    "upgrade_required": True if "limit" in reason.lower() else False,
+                },
+            )
+
         # Create session using service
         created_session = await session_service.create_session(
             user_id=current_user.user_id,
@@ -102,6 +129,9 @@ async def create_session(
             metadata={},
         )
 
+        # Record interview creation (increment counters)
+        await user_service.record_interview_creation(current_user.user_id)
+
         logger.info(
             "Session created successfully",
             extra={
@@ -114,6 +144,8 @@ async def create_session(
 
         return SessionResponse.from_entity(created_session)
 
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except ValidationError as e:

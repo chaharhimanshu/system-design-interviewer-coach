@@ -97,18 +97,9 @@ class MemoryEnhancedOrchestrator:
         self.feedback_provider = MemoryEnhancedFeedbackProvider(self.session_manager)
         self.summary_generator = MemoryEnhancedSummaryGenerator(
             self.session_manager
-        )  # Week 4 Addition
-
-        # Initialize OpenAI model for orchestration decisions
-        self.llm = ChatOpenAI(
-            model=self.settings.openai.model,
-            temperature=0.2,  # Low temperature for consistent orchestration decisions
-            api_key=self.settings.openai.api_key,
-            max_tokens=self.settings.openai.max_tokens,
         )
-
         logger.info(
-            "MemoryEnhancedOrchestrator initialized - targeting 4-8 API calls per interview"
+            "MemoryEnhancedOrchestrator initialized"
         )
 
     def _serialize_for_json(self, obj) -> Dict[str, Any]:

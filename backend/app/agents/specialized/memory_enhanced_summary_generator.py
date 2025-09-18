@@ -48,7 +48,7 @@ logger = get_logger(__name__)
 
 class MemoryEnhancedSummaryGenerator:
     """
-    Week 4: Memory-Enhanced Summary Generator with database memory and complete conversation analysis.
+    Memory-Enhanced Summary Generator with database memory and complete conversation analysis.
 
     Features:
     - Uses LangGraph agent pattern with database memory (no checkpointer)
