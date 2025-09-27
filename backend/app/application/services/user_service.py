@@ -15,6 +15,7 @@ from app.domain.entities.user import (
     SubscriptionTier,
 )
 from app.domain.repositories.user_repository import IUserRepository
+from app.application.services.user_analytics_service import UserAnalyticsService
 from app.shared.exceptions import (
     BusinessRuleError,
     ResourceNotFoundError,
@@ -31,8 +32,9 @@ class UserService:
     Orchestrates user operations and enforces business rules
     """
 
-    def __init__(self, user_repository: IUserRepository):
+    def __init__(self, user_repository: IUserRepository, analytics_service: UserAnalyticsService = None):
         self.user_repository = user_repository
+        self.analytics_service = analytics_service
 
     async def get_user_profile(self, user_id: UUID) -> User:
         """Get user profile by ID with proper error handling"""
@@ -253,8 +255,15 @@ class UserService:
             if not user:
                 return False, "User not found"
 
-            # Use domain entity method to check limits
-            can_create, reason = user.can_create_interview()
+            # Use analytics service to check limits
+            if self.analytics_service:
+                can_create, reason = await self.analytics_service.can_create_interview(user)
+            else:
+                # Fallback to basic subscription check
+                limits = user.get_session_limits_for_tier()
+                max_interviews = limits.get("interviews_per_month", 0)
+                can_create = max_interviews == -1  # Unlimited for premium
+                reason = "Premium subscription" if can_create else "Free plan limit reached"
 
             if not can_create:
                 logger.info(f"Interview creation blocked for user {user_id}: {reason}")
@@ -278,15 +287,14 @@ class UserService:
             if not user:
                 raise ResourceNotFoundError(f"User not found: {user_id}")
 
-            # Use domain entity method to record interview
-            user.record_interview_started()
-
-            # Save updated user
-            await self.user_repository.update(user)
-
-            logger.info(
-                f"Interview recorded for user {user_id}. Monthly: {user.interviews_this_month}, Daily: {user.interviews_today}"
-            )
+            # Use analytics service to record interview
+            if self.analytics_service:
+                analytics = await self.analytics_service.record_interview_started(user_id)
+                logger.info(
+                    f"Interview recorded for user {user_id}. Monthly: {analytics.interviews_this_month}, Daily: {analytics.interviews_today}"
+                )
+            else:
+                logger.warning(f"Analytics service not available for user {user_id}")
 
         except Exception as e:
             logger.error(
@@ -303,38 +311,34 @@ class UserService:
             if not user:
                 raise ResourceNotFoundError(f"User not found: {user_id}")
 
-            can_create, reason = user.can_create_interview()
-
-            # Calculate remaining interviews for free users
-            remaining_interviews = None
-            if (
-                not user.subscription
-                or user.subscription.subscription_tier == SubscriptionTier.FREE
-            ):
-                remaining_interviews = max(0, 2 - user.interviews_this_month)
+            # Get analytics data
+            analytics = None
+            can_create = False
+            reason = "Analytics service unavailable"
+            remaining_interviews = 0
+            
+            if self.analytics_service:
+                analytics = await self.analytics_service.get_user_analytics(user_id)
+                can_create, reason = await self.analytics_service.can_create_interview(user)
+                remaining_interviews = await self.analytics_service.get_interviews_remaining(user)
+                if remaining_interviews == -1:
+                    remaining_interviews = "unlimited"
 
             return {
-                "interviews_this_month": user.interviews_this_month,
-                "interviews_today": user.interviews_today,
+                "interviews_this_month": analytics.interviews_this_month if analytics else 0,
+                "interviews_today": analytics.interviews_today if analytics else 0,
                 "last_interview_date": (
-                    user.last_interview_date.isoformat()
-                    if user.last_interview_date
+                    analytics.last_interview_date.isoformat()
+                    if analytics and analytics.last_interview_date
                     else None
                 ),
                 "can_create_interview": can_create,
                 "limit_reason": reason if not can_create else None,
                 "remaining_interviews": remaining_interviews,
-                "subscription_tier": (
-                    user.subscription.subscription_tier.value
-                    if user.subscription
-                    else "free"
-                ),
-                "is_premium": (
-                    user.subscription
-                    and user.subscription.subscription_tier != SubscriptionTier.FREE
-                    if user.subscription
-                    else False
-                ),
+                "subscription_tier": user.subscription.tier.value,
+                "is_premium": user.subscription.tier != SubscriptionTier.FREE,
+                "avg_score": analytics.avg_score if analytics else None,
+                "streak": analytics.streak if analytics else 0,
             }
 
         except Exception as e:

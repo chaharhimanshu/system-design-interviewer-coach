@@ -74,9 +74,17 @@ async def get_auth_service(
 
 async def get_user_service(
     user_repository: IUserRepository = Depends(get_user_repository),
+    db=Depends(get_db_session),
 ) -> UserService:
     """Get user service instance with proper repository abstraction"""
-    return UserService(user_repository)
+    from app.infrastructure.database.repositories.user_analytics_repository import (
+        SQLAlchemyUserAnalyticsRepository,
+    )
+    from app.application.services.user_analytics_service import UserAnalyticsService
+    
+    analytics_repository = SQLAlchemyUserAnalyticsRepository(db)
+    analytics_service = UserAnalyticsService(analytics_repository)
+    return UserService(user_repository, analytics_service)
 
 
 async def get_current_user(

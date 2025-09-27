@@ -67,7 +67,6 @@ class UserResponse(BaseModel):
     last_login_at: Optional[datetime] = None
     email_verified: bool
     terms_accepted_at: Optional[datetime] = None
-    privacy_accepted_at: Optional[datetime] = None
 
     @classmethod
     def from_entity(cls, user: User) -> "UserResponse":
@@ -110,7 +109,6 @@ class UserResponse(BaseModel):
             last_login_at=user.last_login_at,
             email_verified=user.email_verified,
             terms_accepted_at=user.terms_accepted_at,
-            privacy_accepted_at=user.privacy_accepted_at,
         )
 
 

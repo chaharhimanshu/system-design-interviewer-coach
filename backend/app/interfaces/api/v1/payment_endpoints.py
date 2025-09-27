@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 
 from app.application.services.payment_service import PaymentService
+from app.application.services.user_analytics_service import UserAnalyticsService
 from app.domain.entities.payment import SubscriptionType
 from app.infrastructure.database.config import get_db_session
 from app.domain.entities.user import User
@@ -77,6 +78,19 @@ async def get_auth_service(
         google_client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
         google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", ""),
     )
+
+
+async def get_analytics_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> UserAnalyticsService:
+    """Get user analytics service instance"""
+    from app.infrastructure.database.repositories.user_analytics_repository import (
+        SQLAlchemyUserAnalyticsRepository,
+    )
+    from app.application.services.user_analytics_service import UserAnalyticsService
+    
+    analytics_repository = SQLAlchemyUserAnalyticsRepository(session)
+    return UserAnalyticsService(analytics_repository)
 
 
 async def get_payment_service(
@@ -374,12 +388,18 @@ async def razorpay_webhook(
 
 
 @router.get("/subscription-status")
-async def get_subscription_status(current_user: User = Depends(get_current_user)):
+async def get_subscription_status(
+    current_user: User = Depends(get_current_user),
+    analytics_service: UserAnalyticsService = Depends(get_analytics_service)
+):
     """
     Get current user's subscription status
     """
     try:
         subscription = current_user.subscription
+        
+        # Get remaining interviews from analytics service
+        interviews_remaining = await analytics_service.get_interviews_remaining(current_user)
 
         if not subscription:
             return {
@@ -387,26 +407,18 @@ async def get_subscription_status(current_user: User = Depends(get_current_user)
                 "is_active": False,
                 "subscription_type": None,
                 "expires_at": None,
-                "interviews_remaining": max(0, 2 - current_user.interviews_this_month),
+                "interviews_remaining": interviews_remaining if interviews_remaining != -1 else "unlimited",
             }
 
         return {
             "has_subscription": True,
             "is_active": subscription.is_active,
-            "subscription_type": (
-                subscription.subscription_type.value
-                if subscription.subscription_type
-                else None
-            ),
+            "subscription_type": subscription.tier.value,
             "expires_at": (
                 subscription.expires_at.isoformat() if subscription.expires_at else None
             ),
-            "is_lifetime": subscription.is_lifetime,
-            "interviews_remaining": (
-                "unlimited"
-                if subscription.is_active
-                else max(0, 2 - current_user.interviews_this_month)
-            ),
+            "is_lifetime": subscription.expires_at is None and subscription.is_active,
+            "interviews_remaining": interviews_remaining if interviews_remaining != -1 else "unlimited",
         }
 
     except Exception as e:

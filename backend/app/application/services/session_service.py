@@ -405,6 +405,47 @@ class SessionService:
             logger.error(f"Error resuming session {session_id}: {e}")
             return False
 
+    async def check_session_timeout(self, session_id: UUID) -> bool:
+        """Check if session has exceeded its max duration and auto-end if needed"""
+        try:
+            session = await self.get_session(session_id)
+            
+            if session.status != SessionStatus.ACTIVE:
+                return False
+            
+            # Calculate elapsed time
+            current_time = datetime.now(timezone.utc)
+            elapsed_minutes = (current_time - session.started_at).total_seconds() / 60
+            
+            # Check if session has exceeded max duration
+            if elapsed_minutes >= session.config.max_duration_minutes:
+                logger.info(f"Session {session_id} exceeded max duration of {session.config.max_duration_minutes} minutes")
+                
+                # Auto-end the session
+                updated_session = await self.update_session_status(session_id, "COMPLETED")
+                
+                # Add a system message about timeout
+                await self.add_message_to_session(
+                    session_id=session_id,
+                    role="SYSTEM",
+                    content=f"Session automatically ended after {session.config.max_duration_minutes} minutes.",
+                    message_type="TEXT",
+                    metadata={"reason": "timeout", "max_duration_minutes": session.config.max_duration_minutes}
+                )
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking session timeout for {session_id}: {e}")
+            return False
+
+    async def get_session_with_timeout_check(self, session_id: UUID) -> InterviewSession:
+        """Get session and automatically check for timeout"""
+        await self.check_session_timeout(session_id)
+        return await self.get_session(session_id)
+
 
 # Global session service instance
 session_service: Optional[SessionService] = None

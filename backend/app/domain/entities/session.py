@@ -30,20 +30,21 @@ class DifficultyLevel(str, Enum):
 class MessageRole(str, Enum):
     """Chat message roles"""
 
-    USER = "USER"
-    ASSISTANT = "ASSISTANT"
-    SYSTEM = "SYSTEM"
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
 
 
 class MessageType(str, Enum):
     """Types of messages in the session"""
 
-    TEXT = "TEXT"
-    QUESTION = "QUESTION"
-    ANSWER = "ANSWER"
-    FEEDBACK = "FEEDBACK"
-    CLARIFICATION = "CLARIFICATION"
-    HINT = "HINT"
+    TEXT = "text"
+    CODE = "code"
+    QUESTION = "question"
+    ANSWER = "answer"
+    FEEDBACK = "feedback"
+    CLARIFICATION = "clarification"
+    HINT = "hint"
 
 
 @dataclass

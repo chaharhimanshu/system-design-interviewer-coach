@@ -35,6 +35,7 @@ from app.interfaces.api.v1.session_stream_endpoints import (
     router as stream_session_router,
 )
 from app.interfaces.api.v1.payment_endpoints import router as payment_router
+from app.interfaces.api.v1.subscription_endpoints import router as subscription_router
 
 # Import exceptions
 from app.shared.exceptions import SDCoachException
@@ -126,6 +127,9 @@ def create_app() -> FastAPI:
 
     # Include payment router with API prefix
     app.include_router(payment_router, prefix="/api/v1")
+
+    # Include subscription router with API prefix
+    app.include_router(subscription_router, prefix="/api/v1")
 
     return app
 

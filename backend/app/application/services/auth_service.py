@@ -125,7 +125,6 @@ class AuthenticationService:
                     profile=profile,
                     email_verified=email_verified,
                     terms_accepted_at=datetime.now(timezone.utc),
-                    privacy_accepted_at=datetime.now(timezone.utc),
                 )
 
                 user = await self.user_repository.create(user)

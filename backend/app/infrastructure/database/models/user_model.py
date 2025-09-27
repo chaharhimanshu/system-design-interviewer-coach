@@ -50,7 +50,7 @@ class UserModel(Base):
 
     # Authentication fields
     email = Column(String(255), nullable=False, unique=True, index=True)
-    google_id = Column(String(255), nullable=False, unique=True, index=True)
+    google_id = Column(String(255), nullable=True, unique=True, index=True)
 
     # User status and role
     status = Column(
@@ -86,9 +86,6 @@ class UserModel(Base):
     # Preferences (stored as JSON)
     preferences = Column(JSON, nullable=False, default=dict)
 
-    # Subscription details (stored as JSON)
-    subscription_data = Column(JSON, nullable=False, default=dict)
-
     # Timestamps
     created_at = Column(
         DateTime(timezone=True),
@@ -106,14 +103,12 @@ class UserModel(Base):
     # Verification and compliance
     email_verified = Column(Boolean, default=False, nullable=False)
     terms_accepted_at = Column(DateTime(timezone=True))
-    privacy_accepted_at = Column(DateTime(timezone=True))
 
     # Indexes for performance
     __table_args__ = (
         Index("idx_users_email_status", "email", "status"),
         Index("idx_users_google_id", "google_id"),
         Index("idx_users_created_at", "created_at"),
-        Index("idx_users_subscription_tier", "subscription_data"),
     )
 
     @hybrid_property
@@ -149,26 +144,15 @@ class UserModel(Base):
             timezone=preferences_data.get("timezone", "UTC"),
         )
 
-        # Parse subscription
-        sub_data = self.subscription_data or {}
+        # Create default subscription (free tier) - actual subscription data now comes from separate table
         subscription = SubscriptionDetails(
-            tier=SubscriptionTier(sub_data.get("tier", "free")),
-            started_at=datetime.fromisoformat(
-                sub_data.get("started_at", self.created_at.isoformat())
-            ),
-            expires_at=(
-                datetime.fromisoformat(sub_data["expires_at"])
-                if sub_data.get("expires_at")
-                else None
-            ),
-            is_trial=sub_data.get("is_trial", False),
-            trial_ends_at=(
-                datetime.fromisoformat(sub_data["trial_ends_at"])
-                if sub_data.get("trial_ends_at")
-                else None
-            ),
-            auto_renew=sub_data.get("auto_renew", True),
-            payment_method_id=sub_data.get("payment_method_id"),
+            tier=SubscriptionTier.FREE,
+            started_at=self.created_at,
+            expires_at=None,
+            is_trial=False,
+            trial_ends_at=None,
+            auto_renew=False,
+            payment_method_id=None,
         )
 
         # Create profile
@@ -197,7 +181,6 @@ class UserModel(Base):
             last_login_at=self.last_login_at,
             email_verified=self.email_verified,
             terms_accepted_at=self.terms_accepted_at,
-            privacy_accepted_at=self.privacy_accepted_at,
         )
 
     @classmethod
@@ -213,24 +196,7 @@ class UserModel(Base):
             "timezone": user.preferences.timezone,
         }
 
-        # Serialize subscription
-        subscription_data = {
-            "tier": user.subscription.tier.value,
-            "started_at": user.subscription.started_at.isoformat(),
-            "expires_at": (
-                user.subscription.expires_at.isoformat()
-                if user.subscription.expires_at
-                else None
-            ),
-            "is_trial": user.subscription.is_trial,
-            "trial_ends_at": (
-                user.subscription.trial_ends_at.isoformat()
-                if user.subscription.trial_ends_at
-                else None
-            ),
-            "auto_renew": user.subscription.auto_renew,
-            "payment_method_id": user.subscription.payment_method_id,
-        }
+        # Note: Subscription data is now handled by separate subscription table
 
         model = cls(
             id=user.user_id,
@@ -246,13 +212,11 @@ class UserModel(Base):
             bio=user.profile.bio,
             avatar_url=user.profile.avatar_url,
             preferences=preferences_data,
-            subscription_data=subscription_data,
             created_at=user.created_at,
             updated_at=user.updated_at,
             last_login_at=user.last_login_at,
             email_verified=user.email_verified,
             terms_accepted_at=user.terms_accepted_at,
-            privacy_accepted_at=user.privacy_accepted_at,
         )
 
         # Set encrypted phone number
@@ -270,7 +234,6 @@ class UserModel(Base):
         self.last_login_at = user.last_login_at
         self.email_verified = user.email_verified
         self.terms_accepted_at = user.terms_accepted_at
-        self.privacy_accepted_at = user.privacy_accepted_at
 
         # Profile fields
         self.first_name = user.profile.first_name
@@ -292,24 +255,7 @@ class UserModel(Base):
             "timezone": user.preferences.timezone,
         }
 
-        # Subscription
-        self.subscription_data = {
-            "tier": user.subscription.tier.value,
-            "started_at": user.subscription.started_at.isoformat(),
-            "expires_at": (
-                user.subscription.expires_at.isoformat()
-                if user.subscription.expires_at
-                else None
-            ),
-            "is_trial": user.subscription.is_trial,
-            "trial_ends_at": (
-                user.subscription.trial_ends_at.isoformat()
-                if user.subscription.trial_ends_at
-                else None
-            ),
-            "auto_renew": user.subscription.auto_renew,
-            "payment_method_id": user.subscription.payment_method_id,
-        }
+        # Note: Subscription data is now handled by separate subscription table
 
     def __repr__(self) -> str:
         return f"<UserModel(id={self.id}, email={self.email}, status={self.status})>"

@@ -12,10 +12,11 @@ from app.domain.entities.session import (
     SessionStatus,
     DifficultyLevel,
     MessageType,
+    MessageRole,
 )
 
 if TYPE_CHECKING:
-    from app.domain.entities.session import InterviewSession
+    from app.domain.entities.session import InterviewSession, Message
 
 
 class SessionConfigRequest(BaseModel):
@@ -93,6 +94,150 @@ class SessionResponse(BaseModel):
             created_at=session.created_at,
             updated_at=session.updated_at,
             message_count=len(session.messages),
+        )
+
+
+class MessageResponse(BaseModel):
+    """Response model for chat messages"""
+    
+    message_id: UUID
+    session_id: UUID
+    role: MessageRole
+    message_type: MessageType
+    content: str
+    tokens_used: int
+    timestamp: datetime
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    class Config:
+        from_attributes = True
+
+    @classmethod
+    def from_entity(cls, message: "Message") -> "MessageResponse":
+        """Create response from domain entity"""
+        return cls(
+            message_id=message.message_id,
+            session_id=message.session_id,
+            role=message.role,
+            message_type=message.message_type,
+            content=message.content,
+            tokens_used=message.tokens_used,
+            timestamp=message.timestamp,
+            metadata=message.metadata,
+        )
+
+
+class FeedbackResponse(BaseModel):
+    """Response model for session feedback"""
+    
+    feedback_id: UUID
+    session_id: UUID
+    user_id: UUID
+    overall_rating: int = Field(..., ge=1, le=5)
+    ai_quality_rating: int = Field(..., ge=1, le=5)
+    user_experience_rating: int = Field(..., ge=1, le=5)
+    comments: Optional[str] = None
+    suggestions: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DetailedSessionResponse(BaseModel):
+    """Detailed response model for interview sessions with full chat history and feedback"""
+
+    session_id: UUID
+    user_id: UUID
+    topic: str
+    difficulty_level: DifficultyLevel
+    status: SessionStatus
+    started_at: datetime
+    ended_at: Optional[datetime]
+    total_duration: Optional[int]  # in seconds
+    max_duration_minutes: int
+    enable_hints: bool
+    enable_real_time_feedback: bool
+    custom_requirements: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+    messages: List[MessageResponse] = Field(default_factory=list)
+    feedback: Optional[FeedbackResponse] = None
+    message_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+    @classmethod
+    def from_entity(cls, session: "InterviewSession", feedback=None) -> "DetailedSessionResponse":
+        """Create detailed response from domain entity"""
+        messages = [MessageResponse.from_entity(msg) for msg in session.messages]
+        
+        return cls(
+            session_id=session.session_id,
+            user_id=session.user_id,
+            topic=session.config.topic,
+            difficulty_level=session.config.difficulty_level,
+            status=session.status,
+            started_at=session.started_at,
+            ended_at=session.ended_at,
+            total_duration=session.total_duration,
+            max_duration_minutes=session.config.max_duration_minutes,
+            enable_hints=session.config.enable_hints,
+            enable_real_time_feedback=session.config.enable_real_time_feedback,
+            custom_requirements=session.config.custom_requirements,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            messages=messages,
+            feedback=feedback,
+            message_count=len(messages),
+        )
+
+
+class CreateSessionWithStartRequest(BaseModel):
+    """Request to create and start new interview session"""
+
+    config: SessionConfigRequest
+
+
+class StartSessionResponse(BaseModel):
+    """Response for starting a session with opening question"""
+    
+    session_id: UUID
+    user_id: UUID
+    topic: str
+    difficulty_level: DifficultyLevel
+    status: SessionStatus
+    started_at: datetime
+    max_duration_minutes: int
+    opening_question: str
+    message_id: UUID
+    expected_topics: List[str] = Field(default_factory=list)
+    context: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+    @classmethod
+    def from_session_and_message(
+        cls, 
+        session: "InterviewSession", 
+        opening_message: "Message",
+        ai_response: Dict[str, Any]
+    ) -> "StartSessionResponse":
+        """Create response from session, opening message, and AI response"""
+        return cls(
+            session_id=session.session_id,
+            user_id=session.user_id,
+            topic=session.config.topic,
+            difficulty_level=session.config.difficulty_level,
+            status=session.status,
+            started_at=session.started_at,
+            max_duration_minutes=session.config.max_duration_minutes,
+            opening_question=opening_message.content,
+            message_id=opening_message.message_id,
+            expected_topics=ai_response.get("expected_topics", []),
+            context=ai_response.get("context", ""),
         )
 
 

@@ -14,7 +14,10 @@ from app.shared.logging import get_logger, log_endpoint_call, log_error
 from app.interfaces.schemas.session_schemas import (
     MessageRequest,
     CreateSessionRequest,
+    CreateSessionWithStartRequest,
     SessionResponse,
+    DetailedSessionResponse,
+    StartSessionResponse,
     SessionListResponse,
 )
 from app.domain.entities.user import User
@@ -59,8 +62,15 @@ async def get_session_service(db=Depends(get_db_session)) -> SessionService:
 
 async def get_user_service(db=Depends(get_db_session)) -> UserService:
     """Get user service with PostgreSQL repositories"""
+    from app.infrastructure.database.repositories.user_analytics_repository import (
+        SQLAlchemyUserAnalyticsRepository,
+    )
+    from app.application.services.user_analytics_service import UserAnalyticsService
+    
     user_repository = PostgreSQLUserRepository(db)
-    return UserService(user_repository)
+    analytics_repository = SQLAlchemyUserAnalyticsRepository(db)
+    analytics_service = UserAnalyticsService(analytics_repository)
+    return UserService(user_repository, analytics_service)
 
 
 async def get_ai_service() -> AIService:
@@ -93,7 +103,7 @@ async def create_session(
     session_service: SessionService = Depends(get_session_service),
     user_service: UserService = Depends(get_user_service),
 ):
-    """Create a new interview session"""
+    """Create a new interview session (without starting it)"""
     log_endpoint_call(logger, "/sessions", "POST", user_id=str(current_user.user_id))
 
     try:
@@ -148,6 +158,106 @@ async def create_session(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/start", response_model=StartSessionResponse, status_code=status.HTTP_201_CREATED)
+async def create_and_start_session(
+    session_request: CreateSessionWithStartRequest,
+    current_user: User = Depends(get_current_user),
+    session_service: SessionService = Depends(get_session_service),
+    user_service: UserService = Depends(get_user_service),
+    ai_service: AIService = Depends(get_ai_service),
+):
+    """Create and start a new interview session with opening question"""
+    log_endpoint_call(logger, "/sessions/start", "POST", user_id=str(current_user.user_id))
+
+    try:
+        # Check interview limits before creating session
+        can_create, reason = await user_service.check_interview_creation_limits(
+            current_user.user_id
+        )
+
+        if not can_create:
+            logger.warning(
+                f"Interview creation blocked for user {current_user.user_id}: {reason}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "Interview limit exceeded",
+                    "message": reason,
+                    "upgrade_required": True if "limit" in reason.lower() else False,
+                },
+            )
+
+        # Create session using service
+        created_session = await session_service.create_session(
+            user_id=current_user.user_id,
+            topic=session_request.config.topic,
+            difficulty_level=session_request.config.difficulty_level,
+            session_config={
+                "max_duration_minutes": session_request.config.max_duration_minutes,
+                "enable_hints": session_request.config.enable_hints,
+                "enable_real_time_feedback": session_request.config.enable_real_time_feedback,
+                "custom_requirements": session_request.config.custom_requirements,
+            },
+            metadata={},
+        )
+
+        # Generate opening question using AI service
+        ai_response = await ai_service.start_interview_session(
+            session=created_session,
+            user_context={
+                "user_preferences": (
+                    current_user.preferences.__dict__
+                    if current_user.preferences
+                    else {}
+                ),
+                "experience_level": (
+                    getattr(
+                        current_user.preferences, "difficulty_level", "intermediate"
+                    )
+                    if current_user.preferences
+                    else "intermediate"
+                ),
+            },
+        )
+
+        # Add the opening question as an AI message
+        opening_message = await session_service.add_message_to_session(
+            session_id=created_session.session_id,
+            role="ASSISTANT",
+            content=ai_response.get("question", ""),
+            message_type="QUESTION",
+            metadata={
+                "type": "opening_question",
+                "expected_topics": ai_response.get("expected_topics", []),
+                "context": ai_response.get("context", ""),
+            },
+        )
+
+        # Record interview creation (increment counters)
+        await user_service.record_interview_creation(current_user.user_id)
+
+        logger.info(
+            "Session created and started successfully",
+            extra={
+                "user_id": str(current_user.user_id),
+                "session_id": str(created_session.session_id),
+                "topic": created_session.config.topic,
+                "difficulty": created_session.config.difficulty_level,
+                "opening_question_length": len(ai_response.get("question", "")),
+            },
+        )
+
+        return StartSessionResponse.from_session_and_message(
+            created_session, opening_message, ai_response
+        )
+
+    except BusinessRuleError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except ValidationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -158,13 +268,13 @@ async def create_session(
         )
 
 
-@router.get("/{session_id}", response_model=SessionResponse)
+@router.get("/{session_id}", response_model=DetailedSessionResponse)
 async def get_session(
     session_id: UUID,
     current_user: User = Depends(get_current_user),
     session_service: SessionService = Depends(get_session_service),
 ):
-    """Get session details"""
+    """Get session details with full chat history and feedback"""
     log_endpoint_call(
         logger,
         f"/sessions/{session_id}",
@@ -173,7 +283,8 @@ async def get_session(
     )
 
     try:
-        session = await session_service.get_session(session_id)
+        # Get session with automatic timeout check
+        session = await session_service.get_session_with_timeout_check(session_id)
 
         if session.user_id != current_user.user_id:
             raise HTTPException(
@@ -181,7 +292,10 @@ async def get_session(
                 detail="Access denied to this session",
             )
 
-        return SessionResponse.from_entity(session)
+        # TODO: Get feedback from feedback repository
+        feedback = None  # We'll implement this when we create the feedback repository
+
+        return DetailedSessionResponse.from_entity(session, feedback)
 
     except ResourceNotFoundError:
         raise HTTPException(

@@ -46,6 +46,13 @@ class SessionModel(Base):
         index=True,
     )
 
+    # Foreign key to interview tool (optional)
+    tool_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("interview_tools.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # Session configuration
     topic = Column(String(200), nullable=False, index=True)
     difficulty_level = Column(
@@ -60,9 +67,6 @@ class SessionModel(Base):
         default="intermediate",
     )
     max_duration_minutes = Column(Integer, nullable=False, default=60)
-    enable_hints = Column(Boolean, nullable=False, default=True)
-    enable_real_time_feedback = Column(Boolean, nullable=False, default=True)
-    custom_requirements = Column(Text)
 
     # Session status and timing
     status = Column(
@@ -83,23 +87,6 @@ class SessionModel(Base):
         default=lambda: datetime.now(timezone.utc),
     )
     ended_at = Column(DateTime(timezone=True))
-    total_duration = Column(Integer)  # in seconds
-
-    # Session metadata
-    session_config = Column(JSON, default=dict)
-
-    # Timestamps
-    created_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
 
     # Relationships
     messages = relationship(
@@ -121,9 +108,9 @@ class SessionModel(Base):
             topic=self.topic,
             difficulty_level=DifficultyLevel(self.difficulty_level),
             max_duration_minutes=self.max_duration_minutes,
-            enable_hints=self.enable_hints,
-            enable_real_time_feedback=self.enable_real_time_feedback,
-            custom_requirements=self.custom_requirements,
+            enable_hints=True,  # Default value since field removed
+            enable_real_time_feedback=True,  # Default value since field removed
+            custom_requirements=None,  # Default value since field removed
         )
 
         # Create session entity
@@ -134,9 +121,9 @@ class SessionModel(Base):
             status=SessionStatus(self.status),
             started_at=self.started_at,
             ended_at=self.ended_at,
-            total_duration=self.total_duration,
-            created_at=self.created_at,
-            updated_at=self.updated_at,
+            total_duration=None,  # Calculate from started_at/ended_at if needed
+            created_at=self.started_at,  # Use started_at since created_at removed
+            updated_at=self.started_at,  # Use started_at since updated_at removed
         )
 
         # Add messages if loaded
@@ -156,15 +143,9 @@ class SessionModel(Base):
             topic=session.config.topic,
             difficulty_level=session.config.difficulty_level.value,
             max_duration_minutes=session.config.max_duration_minutes,
-            enable_hints=session.config.enable_hints,
-            enable_real_time_feedback=session.config.enable_real_time_feedback,
-            custom_requirements=session.config.custom_requirements,
             status=session.status.value,
             started_at=session.started_at,
             ended_at=session.ended_at,
-            total_duration=session.total_duration,
-            created_at=session.created_at,
-            updated_at=session.updated_at,
         )
 
     def update_from_entity(self, session: InterviewSession) -> None:
@@ -172,14 +153,9 @@ class SessionModel(Base):
         self.topic = session.config.topic
         self.difficulty_level = session.config.difficulty_level.value
         self.max_duration_minutes = session.config.max_duration_minutes
-        self.enable_hints = session.config.enable_hints
-        self.enable_real_time_feedback = session.config.enable_real_time_feedback
-        self.custom_requirements = session.config.custom_requirements
         self.status = session.status.value
         self.started_at = session.started_at
         self.ended_at = session.ended_at
-        self.total_duration = session.total_duration
-        self.updated_at = session.updated_at
 
     def __repr__(self) -> str:
         return f"<SessionModel(id={self.id}, topic={self.topic}, status={self.status})>"

@@ -77,11 +77,6 @@ class SubscriptionDetails:
     auto_renew: bool = True
     payment_method_id: Optional[str] = None  # For Razorpay integration
 
-    # Interview tracking for subscription limits
-    interviews_this_month: int = 0
-    interviews_today: int = 0
-    last_interview_date: Optional[datetime] = None
-
     @property
     def is_active(self) -> bool:
         """Check if subscription is currently active"""
@@ -110,7 +105,7 @@ class User:
         self,
         user_id: uuid.UUID,
         email: str,
-        google_id: str,
+        google_id: Optional[str] = None,
         status: UserStatus = UserStatus.ACTIVE,
         role: UserRole = UserRole.USER,
         profile: Optional[UserProfile] = None,
@@ -121,7 +116,6 @@ class User:
         last_login_at: Optional[datetime] = None,
         email_verified: bool = False,
         terms_accepted_at: Optional[datetime] = None,
-        privacy_accepted_at: Optional[datetime] = None,
     ):
         self.user_id = user_id
         self.email = email
@@ -138,7 +132,6 @@ class User:
         self.last_login_at = last_login_at
         self.email_verified = email_verified
         self.terms_accepted_at = terms_accepted_at
-        self.privacy_accepted_at = privacy_accepted_at
 
         # Domain events (for future event-driven architecture)
         self._domain_events: List = []
@@ -247,10 +240,7 @@ class User:
         self.terms_accepted_at = datetime.now(timezone.utc)
         self._mark_as_updated()
 
-    def accept_privacy(self) -> None:
-        """Mark privacy policy as accepted"""
-        self.privacy_accepted_at = datetime.now(timezone.utc)
-        self._mark_as_updated()
+
 
     def can_access_feature(self, feature: str) -> bool:
         """Check if user can access a feature based on subscription"""
@@ -300,51 +290,12 @@ class User:
 
         return limits.get(self.subscription.tier, limits[SubscriptionTier.FREE])
 
-    def can_create_interview(self) -> tuple[bool, str]:
-        """Check if user can create a new interview based on subscription limits"""
+    def get_session_limits_for_tier(self) -> dict:
+        """Get session limits for current subscription tier - analytics checking moved to service layer"""
         limits = self.get_session_limits()
-        max_interviews = limits.get("interviews_per_month", 0)
+        return limits
 
-        # Unlimited interviews for premium users
-        if max_interviews == -1:
-            return True, "Unlimited interviews available"
-
-        # Check monthly limit for free users
-        if self.subscription.interviews_this_month >= max_interviews:
-            if self.subscription.tier == SubscriptionTier.FREE:
-                return (
-                    False,
-                    f"Free plan limit reached ({max_interviews} interviews per month). Upgrade to Premium for unlimited interviews!",
-                )
-            return False, f"Monthly limit of {max_interviews} interviews reached"
-
-        remaining = max_interviews - self.subscription.interviews_this_month
-        return True, f"{remaining} interviews remaining this month"
-
-    def record_interview_started(self) -> None:
-        """Record that user started a new interview"""
-        now = datetime.now(timezone.utc)
-
-        # Reset daily counter if it's a new day
-        if (
-            self.subscription.last_interview_date
-            and self.subscription.last_interview_date.date() != now.date()
-        ):
-            self.subscription.interviews_today = 0
-
-        # Reset monthly counter if it's a new month
-        if self.subscription.last_interview_date and (
-            self.subscription.last_interview_date.month != now.month
-            or self.subscription.last_interview_date.year != now.year
-        ):
-            self.subscription.interviews_this_month = 0
-
-        # Increment counters
-        self.subscription.interviews_this_month += 1
-        self.subscription.interviews_today += 1
-        self.subscription.last_interview_date = now
-
-        self._mark_as_updated()
+    # Interview recording moved to UserAnalytics entity
 
     def upgrade_to_premium(
         self, is_lifetime: bool = False, payment_id: Optional[str] = None
@@ -361,9 +312,6 @@ class User:
                 is_trial=False,
                 payment_method_id=payment_id,
                 auto_renew=False,  # Not applicable for lifetime
-                interviews_this_month=0,  # Reset counters on upgrade
-                interviews_today=0,
-                last_interview_date=self.subscription.last_interview_date,
             )
         else:
             # Monthly subscription
@@ -378,9 +326,6 @@ class User:
                 is_trial=False,
                 payment_method_id=payment_id,
                 auto_renew=True,
-                interviews_this_month=0,  # Reset counters on upgrade
-                interviews_today=0,
-                last_interview_date=self.subscription.last_interview_date,
             )
 
         self._mark_as_updated()
