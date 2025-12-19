@@ -1,0 +1,201 @@
+2025-10-30 14:10:43,014 - main - INFO - Starting Multi-Tool Q&A Bot API...
+2025-10-30 14:10:43,014 - main - INFO - OpenAI API Key configured: True
+2025-10-30 14:10:43,014 - main - INFO - FastAPI application started
+2025-10-30 14:10:43,014 - main - INFO - Upload PDFs via POST /upload
+2025-10-30 14:10:43,014 - main - INFO - Ask questions via POST /query
+2025-10-30 14:10:55,234 - main - INFO - Starting Multi-Tool Q&A Bot API...
+2025-10-30 14:10:55,234 - main - INFO - OpenAI API Key configured: True
+2025-10-30 14:10:55,234 - main - INFO - FastAPI application started
+2025-10-30 14:10:55,235 - main - INFO - Upload PDFs via POST /upload
+2025-10-30 14:10:55,235 - main - INFO - Ask questions via POST /query
+2025-10-31 14:52:03,162 - main - INFO - Starting Multi-Tool Q&A Bot API...
+2025-10-31 14:52:03,163 - main - INFO - OpenAI API Key configured: True
+2025-10-31 14:52:03,163 - main - INFO - FastAPI application started
+2025-10-31 14:52:03,163 - main - INFO - Upload PDFs via POST /upload
+2025-10-31 14:52:03,164 - main - INFO - Ask questions via POST /query
+2025-10-31 15:01:49,182 - main - INFO - Received file: Benefits Expense & Claim Process Guide.pdf
+2025-10-31 15:01:49,186 - utils - INFO - Loading PDF: C:\Users\hichahar\AppData\Local\Temp\tmpnghcsnva.pdf
+2025-10-31 15:01:51,243 - utils - INFO - Loaded 20 pages from PDF
+2025-10-31 15:01:51,245 - utils - INFO - Created 20 chunks
+2025-10-31 15:01:51,246 - utils - INFO - Creating new vectorstore...
+2025-10-31 15:01:52,694 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-10-31 15:01:53,380 - faiss.loader - INFO - Loading faiss with AVX2 support.
+2025-10-31 15:01:53,499 - faiss.loader - INFO - Successfully loaded faiss with AVX2 support.
+2025-10-31 15:01:53,515 - utils - INFO - Vectorstore created successfully
+2025-10-31 15:01:53,516 - main - INFO - Vectorstore updated successfully
+2025-10-31 15:02:15,730 - main - INFO - Retrieving vectorstore data (limit: 100)
+2025-10-31 15:02:15,732 - utils - INFO - Retrieving all documents from vectorstore...
+2025-10-31 15:02:15,732 - utils - INFO - Retrieved 20 documents from vectorstore
+2025-10-31 15:02:56,036 - main - INFO - 
+
+############################################################
+2025-10-31 15:02:56,036 - main - INFO - NEW QUERY: Hi My name is Himanshu
+2025-10-31 15:02:56,036 - main - INFO - SESSION ID: 12345
+2025-10-31 15:02:56,037 - main - INFO - ############################################################
+
+2025-10-31 15:02:56,037 - main - INFO - Conversation history length: 0 messages
+2025-10-31 15:02:56,113 - agent - INFO - 
+============================================================
+2025-10-31 15:02:56,114 - agent - INFO - STEP 1: RETRIEVAL AGENT
+2025-10-31 15:02:56,115 - agent - INFO - Query: Hi My name is Himanshu
+2025-10-31 15:02:56,115 - agent - INFO - Chat history messages: 0
+2025-10-31 15:02:56,115 - agent - INFO - ============================================================
+2025-10-31 15:02:57,221 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-10-31 15:02:57,226 - agent - INFO - Retrieved 3 documents
+2025-10-31 15:03:02,556 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:03:02,593 - agent - INFO - Retrieval Answer: The context does not provide any information about a person named Himanshu.
+2025-10-31 15:03:02,594 - agent - INFO - Confidence: low
+2025-10-31 15:03:02,594 - agent - INFO - 
+============================================================
+2025-10-31 15:03:02,595 - agent - INFO - DECISION POINT: After Retrieval
+2025-10-31 15:03:02,595 - agent - INFO - Confidence: low
+2025-10-31 15:03:02,595 - agent - INFO - ============================================================
+2025-10-31 15:03:02,595 - agent - INFO - Low confidence - trying tools
+2025-10-31 15:03:02,597 - agent - INFO - 
+============================================================
+2025-10-31 15:03:02,597 - agent - INFO - STEP 2: TOOL AGENT
+2025-10-31 15:03:02,598 - agent - INFO - Query: Hi My name is Himanshu
+2025-10-31 15:03:02,598 - agent - INFO - ============================================================
+2025-10-31 15:03:03,599 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:03:03,602 - agent - INFO - No suitable tool found
+2025-10-31 15:03:03,603 - agent - INFO - 
+============================================================
+2025-10-31 15:03:03,603 - agent - INFO - DECISION POINT: After Tools
+2025-10-31 15:03:03,604 - agent - INFO - Current step: tool_failed
+2025-10-31 15:03:03,604 - agent - INFO - ============================================================
+2025-10-31 15:03:03,604 - agent - INFO - Tool failed - using LLM fallback
+2025-10-31 15:03:03,605 - agent - INFO - 
+============================================================
+2025-10-31 15:03:03,605 - agent - INFO - STEP 3: LLM FALLBACK
+2025-10-31 15:03:03,606 - agent - INFO - Query: Hi My name is Himanshu
+2025-10-31 15:03:03,606 - agent - INFO - Chat history messages: 0
+2025-10-31 15:03:03,606 - agent - INFO - ============================================================
+2025-10-31 15:03:05,117 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:03:05,123 - agent - INFO - LLM Answer: Hello Himanshu! It's nice to meet you. How can I assist you today?
+2025-10-31 15:03:05,124 - main - INFO - 
+============================================================
+2025-10-31 15:03:05,126 - main - INFO - FINAL ANSWER RECEIVED
+2025-10-31 15:03:05,126 - main - INFO - ============================================================
+2025-10-31 15:03:05,126 - main - INFO - Hello Himanshu! It's nice to meet you. How can I assist you today?
+2025-10-31 15:03:05,127 - main - INFO - ============================================================
+
+2025-10-31 15:03:43,744 - main - INFO - 
+
+############################################################
+2025-10-31 15:03:43,745 - main - INFO - NEW QUERY: My hobby is playing cricket , can i buy cricket kit using well being subsidy?
+2025-10-31 15:03:43,745 - main - INFO - SESSION ID: 12345
+2025-10-31 15:03:43,745 - main - INFO - ############################################################
+
+2025-10-31 15:03:43,746 - main - INFO - Conversation history length: 2 messages
+2025-10-31 15:03:43,766 - agent - INFO - 
+============================================================
+2025-10-31 15:03:43,767 - agent - INFO - STEP 1: RETRIEVAL AGENT
+2025-10-31 15:03:43,767 - agent - INFO - Query: My hobby is playing cricket , can i buy cricket kit using well being subsidy?
+2025-10-31 15:03:43,767 - agent - INFO - Chat history messages: 2
+2025-10-31 15:03:43,767 - agent - INFO - ============================================================
+2025-10-31 15:03:45,029 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:03:45,031 - agent - INFO - Contextualized Query: Can I use the well-being subsidy to buy a cricket kit if my hobby is playing cricket?
+2025-10-31 15:03:50,905 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-10-31 15:03:50,908 - agent - INFO - Retrieved 3 documents
+2025-10-31 15:03:52,206 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:03:52,213 - agent - INFO - Retrieval Answer: Yes, you can buy a cricket kit using the Well-being Subsidy, as sports equipment, including those related to cricket, qualifies for the subsidy.
+2025-10-31 15:03:52,213 - agent - INFO - Confidence: high
+2025-10-31 15:03:52,214 - agent - INFO - 
+============================================================
+2025-10-31 15:03:52,214 - agent - INFO - DECISION POINT: After Retrieval
+2025-10-31 15:03:52,214 - agent - INFO - Confidence: high
+2025-10-31 15:03:52,214 - agent - INFO - ============================================================
+2025-10-31 15:03:52,215 - agent - INFO - High confidence - returning answer directly
+2025-10-31 15:03:52,215 - main - INFO - 
+============================================================
+2025-10-31 15:03:52,215 - main - INFO - FINAL ANSWER RECEIVED
+2025-10-31 15:03:52,217 - main - INFO - ============================================================
+2025-10-31 15:03:52,217 - main - INFO - Yes, you can buy a cricket kit using the Well-being Subsidy, as sports equipment, including those related to cricket, qualifies for the subsidy.
+2025-10-31 15:03:52,217 - main - INFO - ============================================================
+
+2025-10-31 15:05:11,071 - main - INFO - 
+
+############################################################
+2025-10-31 15:05:11,072 - main - INFO - NEW QUERY: what is my name and what is my hobby?
+2025-10-31 15:05:11,072 - main - INFO - SESSION ID: 12345
+2025-10-31 15:05:11,072 - main - INFO - ############################################################
+
+2025-10-31 15:05:11,072 - main - INFO - Conversation history length: 4 messages
+2025-10-31 15:05:11,092 - agent - INFO - 
+============================================================
+2025-10-31 15:05:11,093 - agent - INFO - STEP 1: RETRIEVAL AGENT
+2025-10-31 15:05:11,093 - agent - INFO - Query: what is my name and what is my hobby?
+2025-10-31 15:05:11,093 - agent - INFO - Chat history messages: 4
+2025-10-31 15:05:11,094 - agent - INFO - ============================================================
+2025-10-31 15:05:13,269 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:05:13,289 - agent - INFO - Contextualized Query: What is my name and what is my hobby, considering that I previously mentioned my name is Himanshu and my hobby is playing cricket?
+2025-10-31 15:05:13,714 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-10-31 15:05:13,717 - agent - INFO - Retrieved 3 documents
+2025-10-31 15:05:14,344 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:05:14,347 - agent - INFO - Retrieval Answer: Your name is Himanshu, and your hobby is playing cricket.
+2025-10-31 15:05:14,347 - agent - INFO - Confidence: high
+2025-10-31 15:05:14,348 - agent - INFO - 
+============================================================
+2025-10-31 15:05:14,348 - agent - INFO - DECISION POINT: After Retrieval
+2025-10-31 15:05:14,349 - agent - INFO - Confidence: high
+2025-10-31 15:05:14,349 - agent - INFO - ============================================================
+2025-10-31 15:05:14,349 - agent - INFO - High confidence - returning answer directly
+2025-10-31 15:05:14,351 - main - INFO - 
+============================================================
+2025-10-31 15:05:14,351 - main - INFO - FINAL ANSWER RECEIVED
+2025-10-31 15:05:14,351 - main - INFO - ============================================================
+2025-10-31 15:05:14,351 - main - INFO - Your name is Himanshu, and your hobby is playing cricket.
+2025-10-31 15:05:14,352 - main - INFO - ============================================================
+
+2025-10-31 15:08:42,133 - main - INFO - 
+
+############################################################
+2025-10-31 15:08:42,133 - main - INFO - NEW QUERY: what is 3 multiply by 4?
+2025-10-31 15:08:42,133 - main - INFO - SESSION ID: 12345
+2025-10-31 15:08:42,134 - main - INFO - ############################################################
+
+2025-10-31 15:08:42,134 - main - INFO - Conversation history length: 6 messages
+2025-10-31 15:08:42,161 - agent - INFO - 
+============================================================
+2025-10-31 15:08:42,162 - agent - INFO - STEP 1: RETRIEVAL AGENT
+2025-10-31 15:08:42,162 - agent - INFO - Query: what is 3 multiply by 4?
+2025-10-31 15:08:42,163 - agent - INFO - Chat history messages: 6
+2025-10-31 15:08:42,164 - agent - INFO - ============================================================
+2025-10-31 15:08:43,316 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:08:43,319 - agent - INFO - Contextualized Query: What is 3 multiplied by 4?
+2025-10-31 15:08:43,736 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-10-31 15:08:43,738 - agent - INFO - Retrieved 3 documents
+2025-10-31 15:08:44,694 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:08:44,697 - agent - INFO - Retrieval Answer: The context does not provide information on mathematical calculations or the specific answer to "what is 3 multiply by 4."
+2025-10-31 15:08:44,698 - agent - INFO - Confidence: low
+2025-10-31 15:08:44,698 - agent - INFO - 
+============================================================
+2025-10-31 15:08:44,698 - agent - INFO - DECISION POINT: After Retrieval
+2025-10-31 15:08:44,699 - agent - INFO - Confidence: low
+2025-10-31 15:08:44,699 - agent - INFO - ============================================================
+2025-10-31 15:08:44,699 - agent - INFO - Low confidence - trying tools
+2025-10-31 15:08:44,700 - agent - INFO - 
+============================================================
+2025-10-31 15:08:44,700 - agent - INFO - STEP 2: TOOL AGENT
+2025-10-31 15:08:44,701 - agent - INFO - Query: what is 3 multiply by 4?
+2025-10-31 15:08:44,701 - agent - INFO - ============================================================
+2025-10-31 15:08:48,406 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-10-31 15:08:48,412 - agent - INFO - Tool selected: Calculator
+2025-10-31 15:08:48,413 - agent - INFO - Tool arguments: {'__arg1': '3 * 4'}
+2025-10-31 15:08:48,413 - tools - INFO - Calculator tool invoked with expression: 3 * 4
+2025-10-31 15:08:48,413 - tools - INFO - Calculator result: 12
+2025-10-31 15:08:48,414 - agent - INFO - Tool result: 12
+2025-10-31 15:08:48,414 - agent - INFO - 
+============================================================
+2025-10-31 15:08:48,414 - agent - INFO - DECISION POINT: After Tools
+2025-10-31 15:08:48,415 - agent - INFO - Current step: tool_success
+2025-10-31 15:08:48,415 - agent - INFO - ============================================================
+2025-10-31 15:08:48,415 - agent - INFO - Tool succeeded - returning answer
+2025-10-31 15:08:48,416 - main - INFO - 
+============================================================
+2025-10-31 15:08:48,417 - main - INFO - FINAL ANSWER RECEIVED
+2025-10-31 15:08:48,417 - main - INFO - ============================================================
+2025-10-31 15:08:48,417 - main - INFO - 12
+2025-10-31 15:08:48,417 - main - INFO - ============================================================
+
+2025-10-31 15:09:08,806 - agent - INFO - Graph visualization saved to agent_graph.png
